@@ -181,6 +181,31 @@ This section resolves the identity and authorization decisions required before s
 - Do not expose child-level or household-level activity publicly. Admin analytics use aggregates and exclude raw anonymous identifiers and unnecessary user-level data.
 - If a future feature collects personal information from children or creates child accounts, pause implementation for a documented jurisdictional privacy review and verifiable parental-consent design. No child account or consent claim is implied by the current family selector.
 
+## Task 7 decision: daily challenge and streak boundary
+
+This section resolves the daily-boundary decision before the daily quiz, completion reward, and streak schemas or API behavior are finalized.
+
+### Canonical timezone
+
+- Use **UTC (`Etc/UTC`)** as the single canonical timezone for the daily challenge and streak system.
+- A challenge day is the UTC calendar date identified by a date-only `YYYY-MM-DD` value. The boundary occurs at `00:00:00Z`.
+- The API, database jobs, and reward calculations must use this canonical date rather than the server's local timezone, a browser timezone, or a user-provided timezone.
+
+### Daily availability, attempts, rewards, and streaks
+
+- Public daily selection returns one approved daily challenge per canonical UTC date and audience, when the product is configured for audience-specific challenges. The same UTC date and audience must resolve to the same challenge for all users.
+- Starting an attempt binds it to the canonical challenge date at issuance. An attempt that starts before `00:00:00Z` and is completed after the boundary remains an attempt for the earlier challenge date; it must not switch questions or receive credit for two dates.
+- A qualifying daily completion credits the UTC challenge date stored on the attempt. Streaks advance across consecutive qualifying UTC dates, with at most one daily completion and reward per member and canonical date. Reward writes must be idempotent.
+- Guest progress and later account linking retain the attempt's original canonical challenge date; linking must not recalculate it in the member's timezone.
+
+### Daylight saving and user-facing dates
+
+- UTC has no daylight-saving transition, so the daily boundary is always exactly one UTC calendar day apart. No seasonal offset table or DST exception is needed.
+- Daily challenge dates are not converted to the viewer's local timezone. The client must render the date-only `challengeDate` as the canonical date and label it as UTC when a date is shown, while using localized formatting for ordinary event timestamps.
+- Copy may call the active challenge “Today's challenge” only when that wording is not ambiguous; otherwise show the explicit canonical date, for example **“Challenge for 2026-09-11 (UTC)”**. Users in other timezones therefore see the same challenge date and streak date as every other user.
+
+Future contracts in `lib/api-spec/openapi.yaml` must expose the canonical timezone/date metadata needed by clients, and future tables in `lib/db/src/schema/index.ts` must persist the canonical challenge date rather than a local timestamp. This is a product contract, not a claim that those API or database objects already exist.
+
 ### Routing conventions
 
 Current conventions that can be verified:
@@ -413,7 +438,7 @@ Before public release:
 2. **Resolved in Task 3:** Replit-managed Clerk with browser session cookies; bearer tokens are reserved for a future native client.
 3. **Resolved in Task 3:** reviewer/admin roles live in the application database; the deployment owner bootstraps the first admin and authorized admins grant reviewer access.
 4. **Resolved in Task 3:** anonymous attempts use a server-issued opaque cookie represented by a keyed hash and may be explicitly linked to the signed-in user's internal ID.
-5. What timezone defines the daily challenge and streak boundary?
+5. **Resolved in Task 7:** daily challenges, qualifying completions, rewards, and streaks use the UTC (`Etc/UTC`) calendar date; displayed daily dates remain canonical UTC dates for users in every timezone.
 6. **Resolved in Task 3:** family mode does not create child identities or collect child personal information; future child data requires privacy and consent review.
 7. Which visual variant is approved for conversion into product tokens?
 8. Which AI provider/model, retention policy, budget, and source-verification policy are approved?
