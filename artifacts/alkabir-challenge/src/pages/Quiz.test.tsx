@@ -83,13 +83,21 @@ vi.mock("@workspace/api-client-react", async () => {
       error: mockState.resume.error,
       refetch: mockState.resume.refetch,
     }),
-    useGetQuizResult: () => ({
-      data: mockState.result.data,
-      isLoading: mockState.result.isLoading,
-      isError: mockState.result.isError,
-      error: mockState.result.error,
-      refetch: mockState.result.refetch,
-    }),
+    useGetQuizResult: () => {
+      const [, render] = React.useState(0);
+
+      return {
+        data: mockState.result.data,
+        isLoading: mockState.result.isLoading,
+        isError: mockState.result.isError,
+        error: mockState.result.error,
+        refetch: () => {
+          const result = mockState.result.refetch();
+          render((value) => value + 1);
+          return result;
+        },
+      };
+    },
   };
 });
 
@@ -264,5 +272,28 @@ describe("Quiz lifecycle", () => {
     expect(await screen.findByText("Alhamdulillah")).toBeInTheDocument();
     expect(screen.getByText("2/2")).toBeInTheDocument();
     expect(screen.getByText("Reward points: 10")).toBeInTheDocument();
+  });
+
+  it("renders a completed-result error and recovers on retry", async () => {
+    window.localStorage.setItem("alkabir.quiz.attemptId:daily-quiz", "attempt-1");
+    mockState.resume.data = completedAttempt;
+    mockState.result.isError = true;
+    mockState.result.error = new Error("The result service is temporarily unavailable.");
+    mockState.result.refetch.mockImplementation(() => {
+      mockState.result.isError = false;
+      mockState.result.error = null;
+      mockState.result.data = completedResult;
+    });
+
+    render(<Quiz />);
+
+    expect(await screen.findByText("Your result could not be loaded")).toBeInTheDocument();
+    expect(screen.getByText("The result service is temporarily unavailable.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("button-retry-quiz"));
+
+    expect(await screen.findByText("2/2")).toBeInTheDocument();
+    expect(screen.getByText("Reward points: 10")).toBeInTheDocument();
+    expect(mockState.result.refetch).toHaveBeenCalledOnce();
   });
 });
