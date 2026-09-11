@@ -1,3 +1,4 @@
 - [Auth and quiz schema compatibility](auth-schema-compatibility.md) — preserve legacy quiz author fields while adding Clerk identity and guest ownership tables.
 - [Generated client typechecking](generated-client-typechecking.md) — keep DOM iterable types enabled when regenerating fetch clients that normalize Headers entries.
+- [Result retry error semantics](result-retry-error-semantics.md) — model settled query errors separately from rejected retry promises in UI tests.
 - [UTC daily boundary contract](utc-daily-boundaries.md) — keep issued challenge dates as UTC date-only strings through persistence and generated clients.
