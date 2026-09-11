@@ -55,10 +55,12 @@ function ErrorNotice({
   message,
   onRetry,
   retryLabel = "Try again",
+  retrying = false,
 }: {
   message: string;
   onRetry?: () => void;
   retryLabel?: string;
+  retrying?: boolean;
 }) {
   return (
     <div
@@ -74,10 +76,12 @@ function ErrorNotice({
           {onRetry && (
             <button
               onClick={onRetry}
-              className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline"
+              disabled={retrying}
+              className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60 disabled:no-underline"
               data-testid="button-retry-quiz"
             >
-              <RefreshCw className="h-4 w-4" /> {retryLabel}
+              {retrying ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              {retrying ? "Retrying…" : retryLabel}
             </button>
           )}
         </div>
@@ -111,6 +115,7 @@ export function Quiz() {
   const [feedback, setFeedback] = useState<AnswerResult | null>(null);
   const [status, setStatus] = useState<QuizStatus>("answering");
   const [finalResult, setFinalResult] = useState<QuizResult | null>(null);
+  const [isResultRetrying, setIsResultRetrying] = useState(false);
   const startRequested = useRef(false);
   const answerKeys = useRef(new Map<string, string>());
   const challengeDate = formatChallengeDateUTC(getChallengeDate());
@@ -189,6 +194,15 @@ export function Quiz() {
 
   const retryResume = () => {
     void resumeAttempt.refetch();
+  };
+
+  const retryResult = async () => {
+    setIsResultRetrying(true);
+    try {
+      await resultQuery.refetch();
+    } finally {
+      setIsResultRetrying(false);
+    }
   };
 
   const handleSubmit = () => {
@@ -322,7 +336,8 @@ export function Quiz() {
           <StatusContent title="Your result could not be loaded">
             <ErrorNotice
               message={getErrorMessage(resultQuery.error, "The challenge service returned an error.")}
-              onRetry={() => void resultQuery.refetch()}
+              onRetry={() => void retryResult()}
+              retrying={isResultRetrying}
             />
           </StatusContent>
         </PageShell>

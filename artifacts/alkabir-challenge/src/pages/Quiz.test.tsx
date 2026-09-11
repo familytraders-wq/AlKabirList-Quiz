@@ -184,6 +184,8 @@ function resetHarness() {
 
     let startAttempts = 0;
     let answerAttempts = 0;
+
+    let resolveRetry!: () => void;
     mockState.answer.mutateImpl = (_variables, options, update) => {
       answerAttempts += 1;
       if (answerAttempts === 1) {
@@ -256,3 +258,5 @@ function resetHarness() {
 });
 
     const requestedQuizIds: string[] = [];
+
+    const retryButton = screen.getByTestId("button-retry-quiz");
