@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter, type Response } from "express";
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   AnswerQuizQuestionBody,
@@ -224,13 +224,18 @@ router.post("/quiz/attempts/:attemptId/answers", async (req, res, next) => {
     const parsedBody = AnswerQuizQuestionBody.safeParse(req.body);
     if (!parsedBody.success) return badRequest(res, "Invalid answer request");
     const attemptId = String(req.params.attemptId);
-    const [attempt] = await db.select().from(quizAttempts).where(ownerWhere(attemptId, res)).limit(1);
-    if (!attempt) return res.status(404).json({ code: "NOT_FOUND", message: "Attempt not found" });
-    if (attempt.status !== "in_progress") {
-      return res.status(409).json({ code: "ATTEMPT_COMPLETED", message: "Attempt is already complete" });
-    }
     const input = parsedBody.data;
     const scored = await db.transaction(async (tx) => {
+      const [attempt] = await tx
+        .select()
+        .from(quizAttempts)
+        .where(ownerWhere(attemptId, res))
+        .for("update")
+        .limit(1);
+      if (!attempt) return undefined;
+      if (attempt.status !== "in_progress") {
+        throw new QuizInputError("ATTEMPT_COMPLETED", "Attempt is already complete");
+      }
       const existing = await tx
         .select()
         .from(attemptAnswers)
@@ -336,11 +341,17 @@ router.post("/quiz/attempts/:attemptId/answers", async (req, res, next) => {
         sources: membership.version.sourceMetadata,
       };
     });
+    if (!scored) {
+      return res.status(404).json({ code: "NOT_FOUND", message: "Attempt not found" });
+    }
     res.json(
       AnswerQuizQuestionResponse.parse(scored),
     );
   } catch (error) {
     if (error instanceof QuizInputError) {
+      if (error.code === "ATTEMPT_COMPLETED") {
+        return res.status(409).json({ code: error.code, message: error.message });
+      }
       return res.status(400).json({ code: error.code, message: error.message });
     }
     next(error);
@@ -385,7 +396,12 @@ router.post("/quiz/attempts/:attemptId/complete", async (req, res, next) => {
     const attemptId = String(req.params.attemptId);
     const owner = getOwner(res);
     const completed = await db.transaction(async (tx) => {
-      const [attempt] = await tx.select().from(quizAttempts).where(ownerWhere(attemptId, res)).limit(1);
+      const [attempt] = await tx
+        .select()
+        .from(quizAttempts)
+        .where(ownerWhere(attemptId, res))
+        .for("update")
+        .limit(1);
       if (!attempt) return undefined;
       if (attempt.status === "completed") return attempt;
       const [totals] = await tx
@@ -399,6 +415,19 @@ router.post("/quiz/attempts/:attemptId/complete", async (req, res, next) => {
         .select({ maxScore: sql<number>`coalesce(sum(${quizQuestions.points}), 0)` })
         .from(quizQuestions)
         .where(eq(quizQuestions.quizId, attempt.quizId));
+      const [questionTotal] = await tx
+        .select({ questionCount: count(quizQuestions.versionId) })
+        .from(quizQuestions)
+        .where(eq(quizQuestions.quizId, attempt.quizId));
+      if (
+        Number(totals?.answered ?? 0) <
+        Number(questionTotal?.questionCount ?? 0)
+      ) {
+        throw new QuizInputError(
+          "INCOMPLETE_ATTEMPT",
+          "Answer every question before completing the quiz",
+        );
+      }
       const [updated] = await tx
         .update(quizAttempts)
         .set({
@@ -487,6 +516,9 @@ router.post("/quiz/attempts/:attemptId/complete", async (req, res, next) => {
     const result = await resultFor(attemptId, res);
     return res.json(result);
   } catch (error) {
+    if (error instanceof QuizInputError && error.code === "INCOMPLETE_ATTEMPT") {
+      return res.status(409).json({ code: error.code, message: error.message });
+    }
     return next(error);
   }
 });

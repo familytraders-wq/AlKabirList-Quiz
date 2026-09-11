@@ -289,6 +289,102 @@ after(async () => {
 });
 
 describe("quiz submission safety", () => {
+  it("does not finalize an attempt until every question is answered", async () => {
+    const started = await request(
+      "/quiz/attempts",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `incomplete-${randomUUID()}`,
+        }),
+      },
+      member,
+    );
+    assert.equal(started.status, 201);
+    const attemptId = started.body.attemptId as string;
+
+    const incomplete = await request(
+      `/quiz/attempts/${attemptId}/complete`,
+      { method: "POST" },
+      member,
+    );
+    assert.equal(incomplete.status, 409);
+    assert.equal(incomplete.body.code, "INCOMPLETE_ATTEMPT");
+
+    const answered = await request(
+      `/quiz/attempts/${attemptId}/answers`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          versionId: fixture.approvedVersionId,
+          choiceId: fixture.correctChoiceId,
+          idempotencyKey: `incomplete-answer-${randomUUID()}`,
+        }),
+      },
+      member,
+    );
+    assert.equal(answered.status, 200);
+
+    const completed = await request(
+      `/quiz/attempts/${attemptId}/complete`,
+      { method: "POST" },
+      member,
+    );
+    assert.equal(completed.status, 200);
+    assert.equal(completed.body.status, "completed");
+    assert.equal(completed.body.score, 25);
+  });
+
+  it("keeps answer and completion races consistent at the attempt boundary", async () => {
+    const started = await request(
+      "/quiz/attempts",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `race-${randomUUID()}`,
+        }),
+      },
+      member,
+    );
+    assert.equal(started.status, 201);
+    const attemptId = started.body.attemptId as string;
+
+    const [answerResponse, completionResponse] = await Promise.all([
+      request(
+        `/quiz/attempts/${attemptId}/answers`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            versionId: fixture.approvedVersionId,
+            choiceId: fixture.correctChoiceId,
+            idempotencyKey: `race-answer-${randomUUID()}`,
+          }),
+        },
+        member,
+      ),
+      request(
+        `/quiz/attempts/${attemptId}/complete`,
+        { method: "POST" },
+        member,
+      ),
+    ]);
+
+    assert.ok([200, 409].includes(answerResponse.status));
+    assert.equal(completionResponse.status, 200);
+    if (answerResponse.status === 200) {
+      assert.equal(completionResponse.body.score, 25);
+    } else {
+      assert.equal(completionResponse.body.score, 0);
+    }
+
+    const result = await request(`/quiz/results/${attemptId}`, {}, member);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.status, "completed");
+    assert.equal(result.body.answers.length, answerResponse.status === 200 ? 1 : 0);
+  });
+
   it("persists one daily completion and reward across concurrent attempts for the same UTC date", async () => {
     const attempts = await Promise.all(
       ["first", "second"].map(async (suffix) => {
