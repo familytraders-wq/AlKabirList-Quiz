@@ -105,6 +105,7 @@ export type AnswerResultSourcesItem = {
   title: string;
   url?: string;
 };
+
 export interface AnswerResult {
   versionId: string;
   choiceId: string;
@@ -158,7 +159,8 @@ export const QuestionWriteRequestType = {
 export type QuestionWriteRequestSourceMetadataItem = {
   title: string;
   url?: string;
- };
+};
+
 export interface QuestionWriteRequest {
   categoryId?: string;
   difficultyId?: string;
@@ -177,6 +179,7 @@ export type AdminQuestionSourceMetadataItem = {
   title: string;
   url?: string;
 };
+
 export interface AdminQuestion {
   id: string;
   status: QuestionStatus;
@@ -242,6 +245,35 @@ export interface QuizAnalytics {
 }
 
 /**
+ * Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.
+ * @pattern ^\d{4}-\d{2}-\d{2}$
+ */
+export type CanonicalDailyDate = string;
+
+export interface DailyAttempt {
+  id: string;
+  challengeId: string;
+  challengeDate: CanonicalDailyDate;
+  issuedAt: string;
+  completedAt?: string | null;
+}
+
+export interface DailyReward {
+  id: string;
+  challengeDate: CanonicalDailyDate;
+  points: number;
+}
+
+export interface DailyCompletion {
+  id: string;
+  attemptId: string;
+  challengeDate: CanonicalDailyDate;
+  completedAt: string;
+  streak: number;
+  reward: DailyReward;
+}
+
+/**
  * Invalid request
  */
 export type BadRequestResponse = Error;
@@ -280,3 +312,4 @@ limit?: number;
  */
 offset?: number;
 };
+

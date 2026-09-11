@@ -293,6 +293,67 @@ export const rewardLedger = pgTable(
   ],
 );
 
+/**
+ * Daily dates are PostgreSQL date-only values. They intentionally do not use
+ * a timestamp or a server-local timezone: challenge selection, completion
+ * credit, and rewards all key off the UTC calendar date.
+ */
+export const dailyAttempts = pgTable(
+  "daily_attempts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    challengeId: text("challenge_id").notNull(),
+    challengeDate: date("challenge_date").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true, mode: "date" }).notNull(),
+    ownerType: text("owner_type").notNull(),
+    memberId: text("member_id"),
+    guestOwnerHash: text("guest_owner_hash"),
+    linkedAt: timestamp("linked_at", { withTimezone: true, mode: "date" }),
+    completedAt: timestamp("completed_at", { withTimezone: true, mode: "date" }),
+  },
+  (table) => [
+    index("daily_attempts_member_idx").on(table.memberId),
+    index("daily_attempts_guest_owner_idx").on(table.guestOwnerHash),
+    index("daily_attempts_challenge_date_idx").on(table.challengeDate),
+  ],
+);
+
+export const dailyCompletions = pgTable(
+  "daily_completions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    attemptId: uuid("attempt_id").notNull(),
+    memberId: text("member_id").notNull(),
+    challengeDate: date("challenge_date").notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true, mode: "date" }).notNull(),
+    streak: integer("streak").notNull(),
+  },
+  (table) => [
+    uniqueIndex("daily_completions_attempt_unique").on(table.attemptId),
+    uniqueIndex("daily_completions_member_date_unique").on(
+      table.memberId,
+      table.challengeDate,
+    ),
+    index("daily_completions_member_idx").on(table.memberId),
+  ],
+);
+
+export const dailyRewards = pgTable(
+  "daily_rewards",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    memberId: text("member_id").notNull(),
+    challengeDate: date("challenge_date").notNull(),
+    points: integer("points").notNull(),
+  },
+  (table) => [
+    uniqueIndex("daily_rewards_member_date_unique").on(
+      table.memberId,
+      table.challengeDate,
+    ),
+  ],
+);
+
 export const insertTaxonomySchema = createInsertSchema(taxonomies);
 export const insertQuestionSchema = createInsertSchema(questions);
 export const insertQuestionVersionSchema = createInsertSchema(questionVersions);

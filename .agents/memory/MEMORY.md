@@ -1,1 +1,2 @@
 - [Generated client typechecking](generated-client-typechecking.md) — keep DOM iterable types enabled when regenerating fetch clients that normalize Headers entries.
+- [UTC daily boundary contract](utc-daily-boundaries.md) — keep issued challenge dates as UTC date-only strings through persistence and generated clients.

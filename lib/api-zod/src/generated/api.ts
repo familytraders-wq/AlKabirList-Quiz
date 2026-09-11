@@ -14,6 +14,8 @@ import * as zod from 'zod';
 export const HealthCheckResponse = zod.object({
   "status": zod.string()
 })
+
+
 /**
  * @summary Get active quiz configuration
  */
@@ -39,6 +41,8 @@ export const GetQuizConfigResponse = zod.object({
   "label": zod.string()
 }))
 })
+
+
 /**
  * @summary Start or resume a quiz attempt
  */
@@ -50,6 +54,7 @@ export const startQuizAttemptHeaderIdempotencyKeyMax = 128;
 export const StartQuizAttemptHeader = zod.object({
   "Idempotency-Key": zod.string().min(startQuizAttemptHeaderIdempotencyKeyMin).max(startQuizAttemptHeaderIdempotencyKeyMax).optional()
 })
+
 export const startQuizAttemptBodyIdempotencyKeyMin = 8;
 export const startQuizAttemptBodyIdempotencyKeyMax = 128;
 
@@ -467,3 +472,5 @@ export const GetQuizAnalyticsResponse = zod.object({
   "questionCounts": zod.record(zod.string(), zod.number().int()),
   "attemptCounts": zod.record(zod.string(), zod.number().int())
 })
+
+

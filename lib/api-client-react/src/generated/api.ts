@@ -141,6 +141,13 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+
+
+
+
+
+
 export const getGetQuizConfigUrl = () => {
 
 
@@ -1285,3 +1292,10 @@ export function useGetQuizAnalytics<TData = Awaited<ReturnType<typeof getQuizAna
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+
+
+
+
+
+
