@@ -117,7 +117,7 @@ The repository contains no:
 
 `cookie-parser` is listed as an API dependency but is not configured. The generated client can attach bearer tokens, but the API does not verify them.
 
-The available `SESSION_SECRET` indicates that session support may be intended, but it does not establish an authentication design and was not inspected.
+The available `SESSION_SECRET` indicates that session support may have been intended, but it does not establish an authentication design and was not inspected. Under the selected contract, Clerk owns member sessions; any server-side signing or keyed hashing must be explicitly scoped during implementation and must not silently turn this variable into a second browser-session system.
 
 ### Admin permissions
 
@@ -130,6 +130,56 @@ Admin permissions are not implemented and therefore cannot be verified as an exi
 - Mock approval is local UI state and has no persistence or audit trail.
 
 All future admin authorization must be enforced by the server. Hiding admin navigation in the frontend is not an authorization boundary.
+
+## Task 3 decision: identity, sessions, and reviewer access
+
+This section resolves the identity and authorization decisions required before schema or API implementation. It is a design decision, not a claim that authentication is already configured. The current Clerk management status is `not_configured`.
+
+### Source of truth and authentication provider
+
+- No external AlKabirList production repository or connected identity system is present in this workspace. Treat this workspace as the new AlKabirList source of truth for subsequent implementation. Do not promise compatibility with existing AlKabirList accounts or admins.
+- If an external production repository is supplied later, pause schema/auth implementation and reconcile its users, roles, and account-linking rules before importing data or claiming compatibility.
+- Use Replit-managed Clerk as the member authentication provider. It supplies the sign-up/sign-in experience and verified identity; it does not own quiz permissions or quiz data.
+- Use email/password with verification as the baseline member sign-in method. Social providers may be enabled later through the managed Auth configuration, but they do not change the application identity contract.
+
+### Canonical identities
+
+- The application `users.id` is the canonical internal user ID and is a generated UUID used by attempts, history, rewards, and review events.
+- Store the immutable Clerk user ID (`sub`, such as `user_...`) in a unique `users.clerk_user_id` mapping. Never use email address, display name, or a client-supplied ID as a foreign key or authorization subject.
+- On an authenticated request, the API verifies the Clerk session, resolves the verified Clerk subject to the internal user, and places that internal user in the request context. A missing mapping is provisioned through a controlled server path; it is never created from a request body.
+- The API will expose three authorization guards: optional user, required user, and required reviewer/admin. Invalid or expired authentication is not silently downgraded to a different authenticated account.
+
+### Browser sessions and anonymous attempts
+
+- The web app uses Clerk's browser session cookie. It must not put member session tokens in `localStorage`, session storage, quiz URLs, or React state. The existing bearer-token hook remains available for a future native client, but it is not enabled for the browser app.
+- The browser uses same-origin relative `/api` requests in production. If development uses separate web/API origins, the web transport must send credentials explicitly and the API must allow only the exact configured development origin.
+- Guests may start and resume an attempt. The API issues a cryptographically random, opaque anonymous-owner value in a host-only, `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/` cookie (for example, `__Host-alkabir_anon`). Store only a keyed hash of that value in the database, never the raw cookie.
+- An anonymous attempt is owned by exactly one of either the internal user ID or the hashed anonymous-owner identity. Attempt access and mutations require the matching owner; an attempt ID alone is never sufficient.
+- Linking is explicit: after sign-in, a user may choose “save/link guest progress.” The server then transactionally transfers eligible attempts belonging to the current anonymous cookie to that authenticated user, rotates the anonymous cookie, and records the link event. The server does not accept an arbitrary anonymous ID or user ID from the client, does not merge two accounts automatically, and does not silently link a shared-device guest history.
+- If a user declines linking, the guest attempt remains guest-owned until the anonymous retention policy removes it. Completed guest results are not added to member history without this explicit action.
+
+### Reviewer and admin authority
+
+- Reviewer/admin access is owned by a server-side `user_roles` mapping in the application database. Clerk identity metadata, frontend state, request payloads, hidden navigation, and email-domain matching are not authorization sources.
+- `reviewer` may view the review queue and approve, reject, or archive content according to the review workflow. `admin` may manage reviewer access, run bounded generation, and view aggregate analytics. Every review and role change records the acting internal user and timestamp.
+- The first `admin` is provisioned by the deployment owner through a reviewed, auditable server-side operation or migration. There is no self-service admin claim and no public bootstrap endpoint.
+- An existing admin may grant or revoke `reviewer`. Granting or revoking `admin` requires the deployment owner or an already authorized administrative operation; the target user cannot grant a role to themself. Removing the last admin is rejected.
+- Public quiz routes use only approved active content. All reviewer/admin routes enforce server-side authorization and return `401` for missing authentication and `403` for an authenticated user without the required role.
+
+### Cookie, CSRF, origin, and lifetime policy
+
+- Production auth and anonymous cookies are `Secure`, `HttpOnly`, host-only, and `SameSite=Lax`; no wildcard `Domain` attribute is used. The CSRF token is separate and non-HttpOnly so browser code can echo it in a request header.
+- All browser state-changing requests (`POST`, `PUT`, `PATCH`, and `DELETE`) require both an exact allowed `Origin` and a matching session-bound double-submit CSRF token. `GET`, `HEAD`, and `OPTIONS` are non-mutating and do not change quiz state. Requests with a missing or unexpected origin are rejected; CORS must use an explicit origin allowlist and never `*` with credentials.
+- The Clerk session policy should use a seven-day inactivity timeout and a thirty-day maximum lifetime, with reauthentication after expiry. Session settings are provider configuration and must be applied consistently in development and production; they are not implemented by trusting a client timestamp.
+- Anonymous-owner cookies are short-lived and abandoned anonymous attempts are subject to a documented retention job. The retention job must not delete linked member history or reviewed-content audit records.
+- Login, linking, role changes, review writes, answer submission, and completion are rate-limited and logged without raw session, cookie, or child data. Security headers and request-size limits are release requirements.
+
+### Child and family privacy
+
+- Family mode is a learning context, not a child identity system. The first release does not create child accounts and does not collect a child's name, email, exact age, school, location, photograph, or free-form profile.
+- A parent or guardian account owns member history. Audience selection is stored only as quiz context; it must not create a child profile, public ranking, or child-targeted analytics. Guest use on a shared family device remains guest-owned unless the adult explicitly links it.
+- Do not expose child-level or household-level activity publicly. Admin analytics use aggregates and exclude raw anonymous identifiers and unnecessary user-level data.
+- If a future feature collects personal information from children or creates child accounts, pause implementation for a documented jurisdictional privacy review and verifiable parental-consent design. No child account or consent claim is implied by the current family selector.
 
 ### Routing conventions
 
@@ -204,27 +254,13 @@ Important production requirements include:
 
 ## Recommended integration plan
 
-### Gate 0: obtain or explicitly replace the missing production context
+### Gate 0: source of truth — resolved
 
-Before schema or API changes, decide which of these is true:
+This workspace is the new AlKabirList source of truth because no external production repository is present in the audited workspace. Any later external repository must be reconciled before compatibility or account migration is claimed. The identity, session, role, linking, security, and privacy contract is recorded in the Task 3 decision above.
 
-1. **An existing AlKabirList production repository exists elsewhere.** Import or connect it and repeat the auth, user, role, navigation, schema, and deployment portions of this audit against that source.
-2. **This workspace will become the new AlKabirList application.** Explicitly approve the creation of new authentication, user/admin, product routing, and deployment conventions here.
+### Gate 1: identity and authorization contract — resolved
 
-Do not claim compatibility with existing AlKabirList accounts or admins until this gate is resolved.
-
-### Gate 1: define identity and authorization contracts
-
-Document before implementation:
-
-- authentication provider and browser session/token strategy;
-- canonical user identifier;
-- whether anonymous attempts use signed cookies or another server-issued identifier;
-- admin role source of truth;
-- server middleware behavior for optional user, required user, and required admin;
-- account-linking behavior for anonymous progress;
-- session lifetime, CSRF protection, allowed origins, and cookie settings; and
-- privacy/consent rules for child and family use.
+The selected contract is Replit-managed Clerk for verified member identity, an internal UUID user record mapped one-to-one to the Clerk subject, a server-issued hashed anonymous-owner cookie for guests, and database-owned reviewer/admin roles. Browser sessions use cookies rather than localStorage tokens; mutations require exact-origin and CSRF checks; and family mode does not create child identities. Implementation must preserve these decisions.
 
 Admin status must come from trusted server-side identity data. It must never be accepted from request payloads or client state.
 
@@ -373,12 +409,12 @@ Before public release:
 
 ## Decisions required before implementation
 
-1. Is there an external AlKabirList production repository or is this the new source of truth?
-2. Which authentication system will be used?
-3. Where is the canonical admin role stored and who can grant it?
-4. What identifies an anonymous attempt, and can it later link to an account?
+1. **Resolved in Task 3:** this workspace is the source of truth unless an external production repository is supplied for reconciliation.
+2. **Resolved in Task 3:** Replit-managed Clerk with browser session cookies; bearer tokens are reserved for a future native client.
+3. **Resolved in Task 3:** reviewer/admin roles live in the application database; the deployment owner bootstraps the first admin and authorized admins grant reviewer access.
+4. **Resolved in Task 3:** anonymous attempts use a server-issued opaque cookie represented by a keyed hash and may be explicitly linked to the signed-in user's internal ID.
 5. What timezone defines the daily challenge and streak boundary?
-6. What child/family privacy and consent policy applies?
+6. **Resolved in Task 3:** family mode does not create child identities or collect child personal information; future child data requires privacy and consent review.
 7. Which visual variant is approved for conversion into product tokens?
 8. Which AI provider/model, retention policy, budget, and source-verification policy are approved?
 9. Who is authorized to review religious content, and what audit evidence must be retained?
@@ -386,7 +422,7 @@ Before public release:
 
 ## Final recommendation
 
-Proceed with production work only after Gates 0 and 1 are resolved. Then implement through the existing monorepo layers in this order:
+Gates 0 and 1 are resolved by the Task 3 decision above. Proceed with implementation through the existing monorepo layers in this order:
 
 1. identity/admin contract;
 2. reviewed schema and migrations;
