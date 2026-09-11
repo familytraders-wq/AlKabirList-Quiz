@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "AlKabir Islamic Challenge"
+description = "A responsive Islamic knowledge challenge experience for the AlKabirList community, with audience selection, topic discovery, and an accessible five-question daily quiz flow inspired by the Emerald Heritage design direction."
+version = "1.0.0"
+id = "artifacts/alkabir-challenge"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25053
+
+[services.development]
+run = "pnpm --filter @workspace/alkabir-challenge run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/alkabir-challenge", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/alkabir-challenge/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25053"
+BASE_PATH = "/"
