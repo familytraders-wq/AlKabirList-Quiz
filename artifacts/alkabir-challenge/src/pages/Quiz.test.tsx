@@ -182,10 +182,51 @@ function resetHarness() {
   mockState.result.refetch.mockReset();
 }
 
-    let startAttempts = 0;
-    let answerAttempts = 0;
+beforeEach(() => {
+  resetHarness();
+  window.localStorage.clear();
+  window.history.replaceState({}, "", "/quiz?quizId=daily-quiz");
+});
 
-    let resolveRetry!: () => void;
+afterEach(() => {
+  cleanup();
+});
+
+describe("Quiz lifecycle", () => {
+  it("starts a configured attempt and renders reviewed questions without an answer key", async () => {
+    mockState.start.mutateImpl = (_variables, _options, update) => {
+      queueMicrotask(() => update({ data: inProgressAttempt }));
+    };
+
+    render(<Quiz />);
+
+    expect(screen.getByTestId("quiz-loading")).toBeInTheDocument();
+    await screen.findByText(question.prompt);
+
+    expect(screen.getByText("Sincerity")).toBeInTheDocument();
+    expect(screen.getByText("Recognition")).toBeInTheDocument();
+    expect(screen.queryByText(/answer key|correct answer|reviewed-version-1/i)).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("alkabir.quiz.attemptId:daily-quiz")).toBe("attempt-1");
+  });
+
+  it("resumes a saved attempt at its first unanswered reviewed question", async () => {
+    window.localStorage.setItem("alkabir.quiz.attemptId:daily-quiz", "attempt-1");
+    mockState.resume.data = {
+      ...inProgressAttempt,
+      answeredQuestionIds: [question.versionId],
+    };
+
+    render(<Quiz />);
+
+    expect(await screen.findByText(secondQuestion.prompt)).toBeInTheDocument();
+    expect(screen.getByText("Question 2 of 2")).toBeInTheDocument();
+    expect(screen.queryByText(question.prompt)).not.toBeInTheDocument();
+  });
+
+  it("shows an answer submission error and lets the user retry", async () => {
+    window.localStorage.setItem("alkabir.quiz.attemptId:daily-quiz", "attempt-1");
+    mockState.resume.data = inProgressAttempt;
+    let answerAttempts = 0;
     mockState.answer.mutateImpl = (_variables, options, update) => {
       answerAttempts += 1;
       if (answerAttempts === 1) {
@@ -256,7 +297,3 @@ function resetHarness() {
     expect(mockState.result.refetch).toHaveBeenCalledOnce();
   });
 });
-
-    const requestedQuizIds: string[] = [];
-
-    const retryButton = screen.getByTestId("button-retry-quiz");

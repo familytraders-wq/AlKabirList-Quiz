@@ -45,7 +45,7 @@ const identities = new Map<string, Identity>(
   [member, otherMember, reviewer].map((identity) => [identity.userId, identity]),
 );
 
-let server: Server;
+let server: Server | undefined;
 let baseUrl: string;
 const fixture = {
   approvedQuizId: randomUUID(),
@@ -66,6 +66,25 @@ const fixture = {
 
 function url(path: string) {
   return `${baseUrl}/api${path}`;
+}
+
+async function startServer() {
+  server = await new Promise<Server>((resolve) => {
+    const instance = createApp({
+      resolveAuth: (req) => {
+        const userId = req.header("x-test-user-id");
+        return userId ? identities.get(userId) : undefined;
+      },
+    }).listen(0, () => resolve(instance));
+  });
+  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+}
+
+async function stopServer() {
+  if (!server) return;
+  await new Promise<void>((resolve, reject) => {
+    server?.close((error) => (error ? reject(error) : resolve()));
+  });
 }
 
 async function request(
@@ -176,19 +195,11 @@ before(async () => {
     choiceIds: [{ id: fixture.reviewChoiceId, label: "Review choice", isCorrect: true }],
   });
 
-  await new Promise<void>((resolve) => {
-    server = createApp({
-      resolveAuth: (req) => {
-        const userId = req.header("x-test-user-id");
-        return userId ? identities.get(userId) : undefined;
-      },
-    }).listen(0, () => resolve());
-  });
-  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  await startServer();
 });
 
 after(async () => {
-  server.close();
+  await stopServer();
   const attemptIds = (
     await db
       .select({ id: quizAttempts.id })
@@ -310,6 +321,51 @@ describe("quiz submission safety", () => {
     assert.equal(storedAttempt?.score, 25);
     assert.equal(rewards.length, 1);
     assert.equal(rewards[0]?.points, 25);
+  });
+
+  it("recovers a saved completed score and reward after the result service restarts", async () => {
+    const started = await request(
+      "/quiz/attempts",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `restart-${randomUUID()}`,
+        }),
+      },
+      member,
+    );
+    assert.equal(started.status, 201);
+    const attemptId = started.body.attemptId as string;
+
+    const answered = await request(`/quiz/attempts/${attemptId}/answers`, {
+      method: "POST",
+      body: JSON.stringify({
+        versionId: fixture.approvedVersionId,
+        choiceId: fixture.correctChoiceId,
+        idempotencyKey: `restart-answer-${randomUUID()}`,
+      }),
+    }, member);
+    assert.equal(answered.status, 200);
+
+    const completed = await request(`/quiz/attempts/${attemptId}/complete`, {
+      method: "POST",
+    }, member);
+    assert.equal(completed.status, 200);
+    assert.equal(completed.body.score, 25);
+    assert.equal(completed.body.rewardPoints, 25);
+
+    await stopServer();
+    await assert.rejects(() => request(`/quiz/results/${attemptId}`, {}, member));
+
+    await startServer();
+    const recovered = await request(`/quiz/results/${attemptId}`, {}, member);
+    assert.equal(recovered.status, 200);
+    assert.equal(recovered.body.attemptId, attemptId);
+    assert.equal(recovered.body.status, "completed");
+    assert.equal(recovered.body.score, 25);
+    assert.equal(recovered.body.maxScore, 25);
+    assert.equal(recovered.body.rewardPoints, 25);
   });
 
   it("does not expose an attempt to another member and excludes draft or pending questions", async () => {

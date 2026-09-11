@@ -318,6 +318,13 @@ async function resultFor(attemptId: string, res: Response) {
     .innerJoin(questionVersions, eq(attemptAnswers.versionId, questionVersions.id))
     .where(eq(attemptAnswers.attemptId, attemptId))
     .orderBy(asc(attemptAnswers.answeredAt));
+  const [reward] = attempt.userId
+    ? await db
+        .select({ points: rewardLedger.points })
+        .from(rewardLedger)
+        .where(and(eq(rewardLedger.attemptId, attemptId), eq(rewardLedger.userId, attempt.userId)))
+        .limit(1)
+    : [];
   return CompleteQuizAttemptResponse.parse({
     attemptId,
     status: attempt.status,
@@ -331,6 +338,7 @@ async function resultFor(attemptId: string, res: Response) {
       explanation: version.explanation,
       sources: version.sourceMetadata,
     })),
+    rewardPoints: reward?.points,
   });
 }
 
