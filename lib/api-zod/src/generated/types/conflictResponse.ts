@@ -5,7 +5,9 @@
  * Reviewed AlKabir Islamic Challenge API
  * OpenAPI spec version: 0.2.0
  */
+import type { Error } from './error';
 
-export interface HealthStatus {
-  status: string;
-}
+/**
+ * Request conflicts with current state
+ */
+export type ConflictResponse = Error;

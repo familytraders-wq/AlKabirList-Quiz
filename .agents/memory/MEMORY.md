@@ -1,0 +1,1 @@
+- [Generated client typechecking](generated-client-typechecking.md) — keep DOM iterable types enabled when regenerating fetch clients that normalize Headers entries.

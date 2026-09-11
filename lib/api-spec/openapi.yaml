@@ -2,21 +2,22 @@ openapi: 3.1.0
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
-  description: API specification
+  version: 0.2.0
+  description: Reviewed AlKabir Islamic Challenge API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: quiz
+  - name: progress
+  - name: admin
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +25,679 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /quiz/config:
+    get:
+      operationId: getQuizConfig
+      tags: [quiz]
+      summary: Get active quiz configuration
+      responses:
+        "200":
+          description: Active taxonomies and daily challenge metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizConfig"
+  /quiz/attempts:
+    post:
+      operationId: startQuizAttempt
+      tags: [quiz]
+      summary: Start or resume a quiz attempt
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartAttemptRequest"
+      responses:
+        "201":
+          description: Attempt started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttemptState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /quiz/attempts/{attemptId}:
+    get:
+      operationId: getQuizAttempt
+      tags: [quiz]
+      summary: Resume an owned quiz attempt
+      parameters:
+        - $ref: "#/components/parameters/AttemptId"
+      responses:
+        "200":
+          description: Resumable attempt
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttemptState"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /quiz/attempts/{attemptId}/answers:
+    post:
+      operationId: answerQuizQuestion
+      tags: [quiz]
+      summary: Submit one answer and score it on the server
+      parameters:
+        - $ref: "#/components/parameters/AttemptId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitAnswerRequest"
+      responses:
+        "200":
+          description: Scored answer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnswerResult"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /quiz/attempts/{attemptId}/complete:
+    post:
+      operationId: completeQuizAttempt
+      tags: [quiz]
+      summary: Complete an attempt idempotently
+      parameters:
+        - $ref: "#/components/parameters/AttemptId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Final result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizResult"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /quiz/results/{attemptId}:
+    get:
+      operationId: getQuizResult
+      tags: [quiz]
+      summary: Get the final result for an owned attempt
+      parameters:
+        - $ref: "#/components/parameters/AttemptId"
+      responses:
+        "200":
+          description: Quiz result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizResult"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /me/quiz/history:
+    get:
+      operationId: getQuizHistory
+      tags: [progress]
+      summary: Get authenticated quiz history
+      responses:
+        "200":
+          description: Completed attempts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizHistory"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /me/quiz/progress:
+    get:
+      operationId: getQuizProgress
+      tags: [progress]
+      summary: Get authenticated points and streak progress
+      responses:
+        "200":
+          description: Progress summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizProgress"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /admin/quiz/questions:
+    get:
+      operationId: listAdminQuestions
+      tags: [admin]
+      summary: List question bank and review queue records
+      parameters:
+        - in: query
+          name: status
+          schema:
+            $ref: "#/components/schemas/QuestionStatus"
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Question records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminQuestionList"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: createAdminQuestion
+      tags: [admin]
+      summary: Create a draft question version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestionWriteRequest"
+      responses:
+        "201":
+          description: Draft question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminQuestion"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/quiz/questions/{questionId}:
+    patch:
+      operationId: updateAdminQuestion
+      tags: [admin]
+      summary: Create a new immutable question version
+      parameters:
+        - $ref: "#/components/parameters/QuestionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestionWriteRequest"
+      responses:
+        "200":
+          description: New draft version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminQuestion"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /admin/quiz/questions/{questionId}/reviews:
+    post:
+      operationId: reviewQuestion
+      tags: [admin]
+      summary: Apply an audited review transition
+      parameters:
+        - $ref: "#/components/parameters/QuestionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRequest"
+      responses:
+        "200":
+          description: Reviewed question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminQuestion"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /admin/quiz/generation-runs:
+    post:
+      operationId: createGenerationRun
+      tags: [admin]
+      summary: Record a bounded AI generation run as pending review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerationRunRequest"
+      responses:
+        "201":
+          description: Pending review generation run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerationRun"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/quiz/analytics:
+    get:
+      operationId: getQuizAnalytics
+      tags: [admin]
+      summary: Get aggregate quiz analytics
+      responses:
+        "200":
+          description: Aggregate counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuizAnalytics"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 components:
+  parameters:
+    AttemptId:
+      in: path
+      name: attemptId
+      required: true
+      schema:
+        type: string
+        format: uuid
+    QuestionId:
+      in: path
+      name: questionId
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      in: header
+      name: Idempotency-Key
+      required: false
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Not authorized
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: Request conflicts with current state
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
   schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
-
+    QuestionStatus:
+      type: string
+      enum: [draft, pending_review, approved, rejected, archived]
+    Taxonomy:
+      type: object
+      required: [id, kind, slug, label]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+        slug:
+          type: string
+        label:
+          type: string
+    PublicChoice:
+      type: object
+      required: [id, label, position]
+      properties:
+        id:
+          type: string
+          format: uuid
+        label:
+          type: string
+        position:
+          type: integer
+    PublicQuestion:
+      type: object
+      required: [id, versionId, prompt, type, points, choices]
+      properties:
+        id:
+          type: string
+          format: uuid
+        versionId:
+          type: string
+          format: uuid
+        prompt:
+          type: string
+        type:
+          type: string
+          enum: [multiple_choice, true_false]
+        points:
+          type: integer
+        choices:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicChoice"
+    QuizConfig:
+      type: object
+      required: [featureName, dailyTimezone, categories, audiences, difficulties]
+      properties:
+        featureName:
+          type: string
+        dailyTimezone:
+          type: string
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Taxonomy"
+        audiences:
+          type: array
+          items:
+            $ref: "#/components/schemas/Taxonomy"
+        difficulties:
+          type: array
+          items:
+            $ref: "#/components/schemas/Taxonomy"
+    StartAttemptRequest:
+      type: object
+      required: [quizId]
+      properties:
+        quizId:
+          type: string
+          format: uuid
+        audienceId:
+          type: string
+          format: uuid
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 128
+    AttemptState:
+      type: object
+      required: [attemptId, quizId, status, questions, answeredQuestionIds]
+      properties:
+        attemptId:
+          type: string
+          format: uuid
+        quizId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [in_progress, completed]
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicQuestion"
+        answeredQuestionIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+    SubmitAnswerRequest:
+      type: object
+      required: [versionId, choiceId, idempotencyKey]
+      properties:
+        versionId:
+          type: string
+          format: uuid
+        choiceId:
+          type: string
+          format: uuid
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 128
+        responseTimeMs:
+          type: integer
+          minimum: 0
+    AnswerResult:
+      type: object
+      required: [versionId, choiceId, isCorrect, awardedPoints, explanation, sources]
+      properties:
+        versionId:
+          type: string
+          format: uuid
+        choiceId:
+          type: string
+          format: uuid
+        isCorrect:
+          type: boolean
+        awardedPoints:
+          type: integer
+        explanation:
+          type: string
+        sources:
+          type: array
+          items:
+            type: object
+            required: [title]
+            properties:
+              title:
+                type: string
+              url:
+                type: string
+                format: uri
+    QuizResult:
+      type: object
+      required: [attemptId, status, score, maxScore, answers]
+      properties:
+        attemptId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [in_progress, completed]
+        score:
+          type: integer
+        maxScore:
+          type: integer
+        answers:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnswerResult"
+        rewardPoints:
+          type: integer
+    QuizHistory:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuizResult"
+    QuizProgress:
+      type: object
+      required: [points, currentStreak]
+      properties:
+        points:
+          type: integer
+        currentStreak:
+          type: integer
+        lastQualifyingDate:
+          type: string
+          format: date
+    QuestionChoiceInput:
+      type: object
+      required: [label, position, isCorrect]
+      properties:
+        label:
+          type: string
+        position:
+          type: integer
+        isCorrect:
+          type: boolean
+    QuestionWriteRequest:
+      type: object
+      required: [prompt, explanation, choices, sourceMetadata]
+      properties:
+        categoryId:
+          type: string
+          format: uuid
+        difficultyId:
+          type: string
+          format: uuid
+        audienceIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        prompt:
+          type: string
+        explanation:
+          type: string
+        type:
+          type: string
+          enum: [multiple_choice, true_false]
+        points:
+          type: integer
+          minimum: 1
+        choices:
+          type: array
+          minItems: 2
+          items:
+            $ref: "#/components/schemas/QuestionChoiceInput"
+        sourceMetadata:
+          type: array
+          items:
+            type: object
+            required: [title]
+            properties:
+              title:
+                type: string
+              url:
+                type: string
+                format: uri
+    AdminQuestion:
+      type: object
+      required: [id, status, versionId, version, prompt, explanation, choices, sourceMetadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/QuestionStatus"
+        versionId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        prompt:
+          type: string
+        explanation:
+          type: string
+        choices:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuestionChoiceInput"
+        sourceMetadata:
+          type: array
+          items:
+            type: object
+            required: [title]
+            properties:
+              title:
+                type: string
+              url:
+                type: string
+                format: uri
+    AdminQuestionList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminQuestion"
+        total:
+          type: integer
+    ReviewRequest:
+      type: object
+      required: [decision, expectedStatus]
+      properties:
+        decision:
+          type: string
+          enum: [approve, reject, archive]
+        expectedStatus:
+          $ref: "#/components/schemas/QuestionStatus"
+        note:
+          type: string
+    GenerationRunRequest:
+      type: object
+      required: [provider, model, promptVersion, questions]
+      properties:
+        provider:
+          type: string
+        model:
+          type: string
+        promptVersion:
+          type: string
+        questions:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/QuestionWriteRequest"
+    GenerationRun:
+      type: object
+      required: [id, provider, model, promptVersion, outputCount, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        provider:
+          type: string
+        model:
+          type: string
+        promptVersion:
+          type: string
+        outputCount:
+          type: integer
+        status:
+          type: string
+          enum: [pending_review]
+    QuizAnalytics:
+      type: object
+      required: [questionCounts, attemptCounts]
+      properties:
+        questionCounts:
+          type: object
+          additionalProperties:
+            type: integer
+        attemptCounts:
+          type: object
+          additionalProperties:
+            type: integer

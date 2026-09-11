@@ -5,7 +5,8 @@
  * Reviewed AlKabir Islamic Challenge API
  * OpenAPI spec version: 0.2.0
  */
+import type { QuizResult } from './quizResult';
 
-export interface HealthStatus {
-  status: string;
+export interface QuizHistory {
+  items: QuizResult[];
 }

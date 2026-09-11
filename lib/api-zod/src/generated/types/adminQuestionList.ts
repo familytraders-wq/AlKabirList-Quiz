@@ -5,7 +5,9 @@
  * Reviewed AlKabir Islamic Challenge API
  * OpenAPI spec version: 0.2.0
  */
+import type { AdminQuestion } from './adminQuestion';
 
-export interface HealthStatus {
-  status: string;
+export interface AdminQuestionList {
+  items: AdminQuestion[];
+  total: number;
 }
