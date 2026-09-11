@@ -18,6 +18,8 @@ import {
 } from "@workspace/api-zod";
 import {
   attemptAnswers,
+  dailyCompletions,
+  dailyRewards,
   questionChoices,
   questionVersions,
   questions,
@@ -28,6 +30,7 @@ import {
   taxonomies,
 } from "@workspace/db/schema";
 import { getOwner, requireUser } from "../middlewares/auth";
+import { addUtcDays, canonicalDateFrom } from "../lib/daily-policy";
 
 const router: IRouter = Router();
 
@@ -280,15 +283,50 @@ router.post("/quiz/attempts/:attemptId/answers", async (req, res, next) => {
       if (!choice) throw new QuizInputError("INVALID_CHOICE", "Choice is not valid for this question");
       const isCorrect = choice.isCorrect;
       const awardedPoints = isCorrect ? membership.points : 0;
-      await tx.insert(attemptAnswers).values({
-        attemptId,
-        versionId: input.versionId,
-        choiceId: input.choiceId,
-        isCorrect,
-        awardedPoints,
-        responseTimeMs: input.responseTimeMs,
-        idempotencyKey: input.idempotencyKey,
-      });
+      const [inserted] = await tx
+        .insert(attemptAnswers)
+        .values({
+          attemptId,
+          versionId: input.versionId,
+          choiceId: input.choiceId,
+          isCorrect,
+          awardedPoints,
+          responseTimeMs: input.responseTimeMs,
+          idempotencyKey: input.idempotencyKey,
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (!inserted) {
+        const [winner] = await tx
+          .select()
+          .from(attemptAnswers)
+          .where(
+            and(
+              eq(attemptAnswers.attemptId, attemptId),
+              or(
+                eq(attemptAnswers.idempotencyKey, input.idempotencyKey),
+                eq(attemptAnswers.versionId, input.versionId),
+              ),
+            ),
+          )
+          .limit(1);
+        if (!winner) {
+          throw new Error("Concurrent answer could not be recovered");
+        }
+        const [winnerVersion] = await tx
+          .select()
+          .from(questionVersions)
+          .where(eq(questionVersions.id, winner.versionId))
+          .limit(1);
+        return {
+          versionId: winner.versionId,
+          choiceId: winner.choiceId,
+          isCorrect: winner.isCorrect,
+          awardedPoints: winner.awardedPoints,
+          explanation: winnerVersion?.explanation ?? "",
+          sources: winnerVersion?.sourceMetadata ?? [],
+        };
+      }
       return {
         versionId: input.versionId,
         choiceId: input.choiceId,
@@ -345,6 +383,7 @@ async function resultFor(attemptId: string, res: Response) {
 router.post("/quiz/attempts/:attemptId/complete", async (req, res, next) => {
   try {
     const attemptId = String(req.params.attemptId);
+    const owner = getOwner(res);
     const completed = await db.transaction(async (tx) => {
       const [attempt] = await tx.select().from(quizAttempts).where(ownerWhere(attemptId, res)).limit(1);
       if (!attempt) return undefined;
@@ -371,16 +410,76 @@ router.post("/quiz/attempts/:attemptId/complete", async (req, res, next) => {
         })
         .where(and(eq(quizAttempts.id, attemptId), eq(quizAttempts.status, "in_progress")))
         .returning();
-      if (updated && getOwner(res).userId) {
-        await tx
-          .insert(rewardLedger)
-          .values({
-            userId: getOwner(res).userId!,
-            attemptId,
-            eventKey: `quiz-completion:${attemptId}`,
-            points: Number(totals?.score ?? 0),
-          })
-          .onConflictDoNothing({ target: rewardLedger.eventKey });
+      if (updated && owner.userId) {
+        const points = Number(totals?.score ?? 0);
+        const [quiz] = await tx
+          .select({ scheduledDate: quizzes.scheduledDate })
+          .from(quizzes)
+          .where(eq(quizzes.id, attempt.quizId))
+          .limit(1);
+
+        if (quiz?.scheduledDate) {
+          const challengeDate = canonicalDateFrom(quiz.scheduledDate);
+          const previousDate = addUtcDays(challengeDate, -1);
+          const [previousCompletion] = await tx
+            .select({ streak: dailyCompletions.streak })
+            .from(dailyCompletions)
+            .where(
+              and(
+                eq(dailyCompletions.memberId, owner.userId),
+                eq(dailyCompletions.challengeDate, previousDate),
+              ),
+            )
+            .limit(1);
+          const [dailyCompletion] = await tx
+            .insert(dailyCompletions)
+            .values({
+              attemptId,
+              memberId: owner.userId,
+              challengeDate,
+              completedAt: updated.completedAt ?? new Date(),
+              streak: (previousCompletion?.streak ?? 0) + 1,
+            })
+            .onConflictDoNothing({
+              target: [
+                dailyCompletions.memberId,
+                dailyCompletions.challengeDate,
+              ],
+            })
+            .returning();
+
+          if (dailyCompletion) {
+            await tx
+              .insert(dailyRewards)
+              .values({
+                memberId: owner.userId,
+                challengeDate,
+                points,
+              })
+              .onConflictDoNothing({
+                target: [dailyRewards.memberId, dailyRewards.challengeDate],
+              });
+            await tx
+              .insert(rewardLedger)
+              .values({
+                userId: owner.userId,
+                attemptId,
+                eventKey: `daily-completion:${owner.userId}:${challengeDate}`,
+                points,
+              })
+              .onConflictDoNothing({ target: rewardLedger.eventKey });
+          }
+        } else {
+          await tx
+            .insert(rewardLedger)
+            .values({
+              userId: owner.userId,
+              attemptId,
+              eventKey: `quiz-completion:${attemptId}`,
+              points,
+            })
+            .onConflictDoNothing({ target: rewardLedger.eventKey });
+        }
       }
       return updated ?? attempt;
     });
@@ -426,11 +525,27 @@ router.get("/me/quiz/history", requireUser, async (_req, res, next) => {
 router.get("/me/quiz/progress", requireUser, async (_req, res, next) => {
   try {
     const owner = getOwner(res);
-    const [totals] = await db
-      .select({ points: sql<number>`coalesce(sum(${rewardLedger.points}), 0)` })
-      .from(rewardLedger)
-      .where(eq(rewardLedger.userId, owner.userId!));
-    res.json(GetQuizProgressResponse.parse({ points: Number(totals?.points ?? 0), currentStreak: 0 }));
+    const [[totals], [latestDailyCompletion]] = await Promise.all([
+      db
+        .select({ points: sql<number>`coalesce(sum(${rewardLedger.points}), 0)` })
+        .from(rewardLedger)
+        .where(eq(rewardLedger.userId, owner.userId!)),
+      db
+        .select({
+          challengeDate: dailyCompletions.challengeDate,
+          streak: dailyCompletions.streak,
+        })
+        .from(dailyCompletions)
+        .where(eq(dailyCompletions.memberId, owner.userId!))
+        .orderBy(desc(dailyCompletions.challengeDate))
+        .limit(1),
+    ]);
+    res.json(
+      GetQuizProgressResponse.parse({
+        points: Number(totals?.points ?? 0),
+        currentStreak: latestDailyCompletion?.streak ?? 0,
+      }),
+    );
   } catch (error) {
     next(error);
   }

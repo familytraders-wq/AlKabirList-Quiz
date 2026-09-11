@@ -7,6 +7,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import {
   attemptAnswers,
+  dailyCompletions,
+  dailyRewards,
   questionChoices,
   questionVersions,
   questions,
@@ -62,6 +64,7 @@ const fixture = {
   reviewQuestionId: randomUUID(),
   reviewVersionId: randomUUID(),
   reviewChoiceId: randomUUID(),
+  dailyQuizId: randomUUID(),
 };
 
 function url(path: string) {
@@ -151,6 +154,28 @@ async function insertQuiz(id: string, slug: string, versionId: string) {
   });
 }
 
+async function insertDailyQuiz(
+  id: string,
+  slug: string,
+  versionId: string,
+  scheduledDate: string,
+) {
+  await db.insert(quizzes).values({
+    id,
+    slug,
+    title: slug,
+    scheduledDate,
+    timezone: "UTC",
+    isActive: true,
+  });
+  await db.insert(quizQuestions).values({
+    quizId: id,
+    versionId,
+    position: 0,
+    points: 25,
+  });
+}
+
 before(async () => {
   await db.insert(users).values([
     { id: member.userId, role: member.role },
@@ -168,6 +193,12 @@ before(async () => {
     ],
   });
   await insertQuiz(fixture.approvedQuizId, `task13-approved-${randomUUID()}`, fixture.approvedVersionId);
+  await insertDailyQuiz(
+    fixture.dailyQuizId,
+    `daily-concurrency-${randomUUID()}`,
+    fixture.approvedVersionId,
+    "2026-09-11",
+  );
 
   await insertQuestion({
     questionId: fixture.draftQuestionId,
@@ -206,11 +237,14 @@ after(async () => {
       .from(quizAttempts)
       .where(inArray(quizAttempts.quizId, [
         fixture.approvedQuizId,
+        fixture.dailyQuizId,
         fixture.draftQuizId,
         fixture.pendingQuizId,
       ]))
   ).map((attempt) => attempt.id);
   if (attemptIds.length) {
+    await db.delete(dailyRewards).where(eq(dailyRewards.memberId, member.userId));
+    await db.delete(dailyCompletions).where(eq(dailyCompletions.memberId, member.userId));
     await db.delete(rewardLedger).where(inArray(rewardLedger.attemptId, attemptIds));
     await db.delete(attemptAnswers).where(inArray(attemptAnswers.attemptId, attemptIds));
     await db.delete(quizAttempts).where(inArray(quizAttempts.id, attemptIds));
@@ -218,11 +252,13 @@ after(async () => {
   await db.delete(reviewEvents).where(eq(reviewEvents.questionId, fixture.reviewQuestionId));
   await db.delete(quizQuestions).where(inArray(quizQuestions.quizId, [
     fixture.approvedQuizId,
+    fixture.dailyQuizId,
     fixture.draftQuizId,
     fixture.pendingQuizId,
   ]));
   await db.delete(quizzes).where(inArray(quizzes.id, [
     fixture.approvedQuizId,
+    fixture.dailyQuizId,
     fixture.draftQuizId,
     fixture.pendingQuizId,
   ]));
@@ -253,6 +289,93 @@ after(async () => {
 });
 
 describe("quiz submission safety", () => {
+  it("persists one daily completion and reward across concurrent attempts for the same UTC date", async () => {
+    const attempts = await Promise.all(
+      ["first", "second"].map(async (suffix) => {
+        const started = await request(
+          "/quiz/attempts",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              quizId: fixture.dailyQuizId,
+              idempotencyKey: `daily-${suffix}-${randomUUID()}`,
+            }),
+          },
+          member,
+        );
+        assert.equal(started.status, 201);
+        const attemptId = started.body.attemptId as string;
+        const answered = await request(
+          `/quiz/attempts/${attemptId}/answers`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              versionId: fixture.approvedVersionId,
+              choiceId: fixture.correctChoiceId,
+              idempotencyKey: `daily-answer-${suffix}-${randomUUID()}`,
+            }),
+          },
+          member,
+        );
+        assert.equal(answered.status, 200);
+        return attemptId;
+      }),
+    );
+
+    const completionResponses = await Promise.all(
+      attempts.map((attemptId) =>
+        request(
+          `/quiz/attempts/${attemptId}/complete`,
+          { method: "POST" },
+          member,
+        ),
+      ),
+    );
+    assert.deepEqual(
+      completionResponses.map((response) => response.status),
+      [200, 200],
+    );
+
+    const completions = await db
+      .select()
+      .from(dailyCompletions)
+      .where(
+        and(
+          eq(dailyCompletions.memberId, member.userId),
+          eq(dailyCompletions.challengeDate, "2026-09-11"),
+        ),
+      );
+    const rewards = await db
+      .select()
+      .from(dailyRewards)
+      .where(
+        and(
+          eq(dailyRewards.memberId, member.userId),
+          eq(dailyRewards.challengeDate, "2026-09-11"),
+        ),
+      );
+    const ledgerEntries = await db
+      .select()
+      .from(rewardLedger)
+      .where(
+        eq(
+          rewardLedger.eventKey,
+          `daily-completion:${member.userId}:2026-09-11`,
+        ),
+      );
+
+    assert.equal(completions.length, 1);
+    assert.equal(completions[0]?.streak, 1);
+    assert.equal(rewards.length, 1);
+    assert.equal(rewards[0]?.points, 25);
+    assert.equal(ledgerEntries.length, 1);
+    assert.equal(ledgerEntries[0]?.points, 25);
+
+    const progress = await request("/me/quiz/progress", {}, member);
+    assert.equal(progress.status, 200);
+    assert.equal(progress.body.currentStreak, 1);
+  });
+
   it("returns the original answer under duplicate requests and awards points once", async () => {
     const started = await request(
       "/quiz/attempts",
