@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { Router, type IRouter, type Response, type Request, type NextFunction } from "express";
-import { and, asc, count, desc, eq, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   CreateAdminQuestionBody,
@@ -21,6 +22,14 @@ import {
   RevokeAdminUserRoleBody,
   RevokeAdminUserRoleParams,
   RevokeAdminUserRoleResponse,
+  ListAdminQuizzesResponse,
+  CreateAdminQuizBody,
+  CreateAdminQuizResponse,
+  UpdateAdminQuizParams,
+  UpdateAdminQuizBody,
+  UpdateAdminQuizResponse,
+  PreviewAdminQuizParams,
+  PreviewAdminQuizResponse,
 } from "@workspace/api-zod";
 import {
   questionAudiences,
@@ -32,6 +41,8 @@ import {
   quizAttempts,
   users,
   userRoles,
+  quizzes,
+  quizQuestions,
 } from "@workspace/db/schema";
 import { getOwner, requireAdmin, requireReviewer } from "../middlewares/auth";
 import { csrfProtection } from "../lib/security";
@@ -59,6 +70,7 @@ async function adminQuestion(questionId: string) {
     version: first.version.version,
     prompt: first.version.prompt,
     explanation: first.version.explanation,
+    points: first.version.points,
     choices: rows.flatMap(({ choice }) =>
       choice
         ? [{ label: choice.label, position: choice.position, isCorrect: choice.isCorrect }]
@@ -255,7 +267,7 @@ router.get("/admin/quiz/questions", async (req, res, next) => {
   }
 });
 
-router.post("/admin/quiz/questions", async (req, res, next) => {
+router.post("/admin/quiz/questions", csrfProtection, async (req, res, next) => {
   try {
     const parsed = CreateAdminQuestionBody.safeParse(req.body);
     if (!parsed.success) return badRequest(res, "Invalid question");
@@ -272,7 +284,7 @@ router.post("/admin/quiz/questions", async (req, res, next) => {
   }
 });
 
-router.patch("/admin/quiz/questions/:questionId", async (req, res, next) => {
+router.patch("/admin/quiz/questions/:questionId", csrfProtection, async (req, res, next) => {
   try {
     const params = UpdateAdminQuestionParams.safeParse(req.params);
     const parsed = UpdateAdminQuestionBody.safeParse(req.body);
@@ -319,14 +331,16 @@ router.patch("/admin/quiz/questions/:questionId", async (req, res, next) => {
   }
 });
 
-router.post("/admin/quiz/questions/:questionId/reviews", async (req, res, next) => {
+router.post("/admin/quiz/questions/:questionId/reviews", csrfProtection, async (req, res, next) => {
   try {
     const params = ReviewQuestionParams.safeParse(req.params);
     const parsed = ReviewQuestionBody.safeParse(req.body);
     if (!params.success || !parsed.success) return badRequest(res, "Invalid review request");
     const reviewerId = getOwner(res).userId;
     if (!reviewerId) return res.status(401).json({ code: "UNAUTHORIZED", message: "Sign-in required" });
-    const nextStatus = parsed.data.decision === "approve"
+    const nextStatus = parsed.data.decision === "submit"
+      ? "pending_review"
+      : parsed.data.decision === "approve"
       ? "approved"
       : parsed.data.decision === "reject"
         ? "rejected"
@@ -334,6 +348,15 @@ router.post("/admin/quiz/questions/:questionId/reviews", async (req, res, next) 
     const result = await db.transaction(async (tx) => {
       const [question] = await tx.select().from(questions).where(eq(questions.id, params.data.questionId));
       if (!question || question.status !== parsed.data.expectedStatus) return { conflict: true as const };
+      const validTransition =
+        parsed.data.decision === "submit"
+          ? ["draft", "rejected"].includes(question.status)
+          : parsed.data.decision === "approve"
+            ? question.status === "pending_review"
+            : parsed.data.decision === "reject"
+              ? question.status === "pending_review"
+              : ["draft", "rejected", "pending_review", "approved"].includes(question.status);
+      if (!validTransition) return { invalidTransition: true as const };
       if (parsed.data.decision === "approve") {
         const [current] = await tx
           .select({ correct: count() })
@@ -358,6 +381,9 @@ router.post("/admin/quiz/questions/:questionId/reviews", async (req, res, next) 
       });
       return { question: updated };
     });
+    if ("invalidTransition" in result) {
+      return res.status(409).json({ code: "INVALID_REVIEW_TRANSITION", message: "Question cannot make that review transition from its current status" });
+    }
     if ("invalid" in result) return badRequest(res, "Approved questions need exactly one correct choice");
     if ("conflict" in result) return res.status(409).json({ code: "STALE_REVIEW", message: "Question status changed; reload before reviewing" });
     const item = await adminQuestion(params.data.questionId);
@@ -367,7 +393,155 @@ router.post("/admin/quiz/questions/:questionId/reviews", async (req, res, next) 
   }
 });
 
-router.post("/admin/quiz/generation-runs", requireAdmin, async (req, res, next) => {
+type QuizMembership = { versionId: string; points: number };
+
+async function adminQuiz(id: string) {
+  const [quiz] = await db.select().from(quizzes).where(eq(quizzes.id, id)).limit(1);
+  if (!quiz) return undefined;
+  const memberships = await db
+    .select({ versionId: quizQuestions.versionId, points: quizQuestions.points })
+    .from(quizQuestions)
+    .where(eq(quizQuestions.quizId, id))
+    .orderBy(asc(quizQuestions.position));
+  return {
+    id: quiz.id,
+    slug: quiz.slug,
+    title: quiz.title,
+    scheduledDate: quiz.scheduledDate,
+    timezone: quiz.timezone,
+    isActive: quiz.isActive,
+    questionCount: memberships.length,
+    questions: memberships,
+  };
+}
+
+async function validateMemberships(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  memberships: QuizMembership[],
+) {
+  if (new Set(memberships.map((item) => item.versionId)).size !== memberships.length) {
+    return "Duplicate question versions are not allowed";
+  }
+  const versions = await tx
+    .select({ id: questionVersions.id, questionId: questionVersions.questionId })
+    .from(questionVersions)
+    .innerJoin(questions, eq(questionVersions.questionId, questions.id))
+    .where(and(
+      inArray(questionVersions.id, memberships.map((item) => item.versionId)),
+      eq(questions.status, "approved"),
+      eq(questions.currentVersionId, questionVersions.id),
+    ))
+    .for("update");
+  if (versions.length !== memberships.length) return "Every question version must be approved and current";
+  return undefined;
+}
+
+async function quizScheduleMutation(
+  input: { title: string; scheduledDate: string; timezone: "UTC"; isActive: boolean; questions: QuizMembership[] },
+  id?: string,
+) {
+  const date = new Date(`${input.scheduledDate}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== input.scheduledDate) {
+    return { error: "INVALID_DATE" as const, message: "scheduledDate must be a valid UTC date-only value" };
+  }
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('alkabir-quiz-schedule-slots'))`);
+    const membershipError = await validateMemberships(tx, input.questions);
+    if (membershipError) return { error: "INVALID_CONTENT" as const, message: membershipError };
+    const conflict = await tx
+      .select({ id: quizzes.id })
+      .from(quizzes)
+      .where(and(
+        eq(quizzes.scheduledDate, input.scheduledDate),
+        isNull(quizzes.audienceId),
+        id ? sql`${quizzes.id} <> ${id}` : undefined,
+      ))
+      .limit(1);
+    if (conflict[0]) return { error: "DATE_CONFLICT" as const, message: "A quiz is already scheduled for this UTC date" };
+    const quiz = id
+      ? (await tx.update(quizzes).set({
+          title: input.title, scheduledDate: input.scheduledDate, timezone: "UTC", isActive: input.isActive,
+        }).where(eq(quizzes.id, id)).returning())[0]
+      : (await tx.insert(quizzes).values({
+          slug: `scheduled-${randomUUID()}`, title: input.title, scheduledDate: input.scheduledDate, timezone: "UTC", isActive: input.isActive,
+        }).returning())[0];
+    if (!quiz) return { error: "NOT_FOUND" as const, message: "Quiz not found" };
+    await tx.delete(quizQuestions).where(eq(quizQuestions.quizId, quiz.id));
+    await tx.insert(quizQuestions).values(input.questions.map((item, position) => ({
+      quizId: quiz.id, versionId: item.versionId, position, points: item.points,
+    })));
+    return { quizId: quiz.id };
+  });
+}
+
+router.get("/admin/quiz/quizzes", async (_req, res, next) => {
+  try {
+    const rows = await db.select({ id: quizzes.id }).from(quizzes).orderBy(desc(quizzes.scheduledDate), desc(quizzes.createdAt));
+    const items = [];
+    for (const row of rows) {
+      const item = await adminQuiz(row.id);
+      if (item) items.push(item);
+    }
+    res.json(ListAdminQuizzesResponse.parse({ items }));
+  } catch (error) { next(error); }
+});
+
+router.post("/admin/quiz/quizzes", csrfProtection, async (req, res, next) => {
+  try {
+    const parsed = CreateAdminQuizBody.safeParse(req.body);
+    if (!parsed.success) return badRequest(res, "Invalid quiz schedule");
+    const result = await quizScheduleMutation(parsed.data);
+    if ("error" in result) return res.status(result.error === "INVALID_DATE" || result.error === "INVALID_CONTENT" ? 400 : result.error === "NOT_FOUND" ? 404 : 409).json({ code: result.error, message: result.message });
+    const item = await adminQuiz(result.quizId);
+    res.status(201).json(CreateAdminQuizResponse.parse(item));
+  } catch (error) { next(error); }
+});
+
+router.patch("/admin/quiz/quizzes/:quizId", csrfProtection, async (req, res, next) => {
+  try {
+    const params = UpdateAdminQuizParams.safeParse(req.params);
+    const parsed = UpdateAdminQuizBody.safeParse(req.body);
+    if (!params.success || !parsed.success) return badRequest(res, "Invalid quiz update");
+    const result = await quizScheduleMutation(parsed.data, params.data.quizId);
+    if ("error" in result) return res.status(result.error === "INVALID_DATE" || result.error === "INVALID_CONTENT" ? 400 : result.error === "NOT_FOUND" ? 404 : 409).json({ code: result.error, message: result.message });
+    const item = await adminQuiz(params.data.quizId);
+    res.json(UpdateAdminQuizResponse.parse(item));
+  } catch (error) { next(error); }
+});
+
+router.get("/admin/quiz/quizzes/:quizId/preview", async (req, res, next) => {
+  try {
+    const params = PreviewAdminQuizParams.safeParse(req.params);
+    if (!params.success) return badRequest(res, "Invalid quiz id");
+    const item = await adminQuiz(params.data.quizId);
+    if (!item) return res.status(404).json({ code: "NOT_FOUND", message: "Quiz not found" });
+    const rows = await db
+      .select({
+        id: questions.id, versionId: questionVersions.id, prompt: questionVersions.prompt,
+        type: questionVersions.type, points: quizQuestions.points,
+        choiceId: questionChoices.id, label: questionChoices.label, position: questionChoices.position,
+      })
+      .from(quizQuestions)
+      .innerJoin(questionVersions, eq(quizQuestions.versionId, questionVersions.id))
+      .innerJoin(questions, eq(questionVersions.questionId, questions.id))
+      .innerJoin(questionChoices, eq(questionVersions.id, questionChoices.versionId))
+      .where(and(
+        eq(quizQuestions.quizId, params.data.quizId),
+        eq(questions.status, "approved"),
+        eq(questions.currentVersionId, questionVersions.id),
+      ))
+      .orderBy(asc(quizQuestions.position), asc(questionChoices.position));
+    const grouped = new Map<string, any>();
+    for (const row of rows) {
+      const current = grouped.get(row.id);
+      if (current) current.choices.push({ id: row.choiceId, label: row.label, position: row.position });
+      else grouped.set(row.id, { id: row.id, versionId: row.versionId, prompt: row.prompt, type: row.type, points: row.points, choices: [{ id: row.choiceId, label: row.label, position: row.position }] });
+    }
+    res.json(PreviewAdminQuizResponse.parse({ id: item.id, title: item.title, scheduledDate: item.scheduledDate, timezone: item.timezone, isActive: item.isActive, questions: [...grouped.values()] }));
+  } catch (error) { next(error); }
+});
+
+router.post("/admin/quiz/generation-runs", requireAdmin, csrfProtection, async (req, res, next) => {
   try {
     const parsed = CreateGenerationRunBody.safeParse(req.body);
     if (!parsed.success) return badRequest(res, "Invalid generation run");

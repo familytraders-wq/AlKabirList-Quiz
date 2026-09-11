@@ -10,6 +10,7 @@ export type ReviewRequestDecision = typeof ReviewRequestDecision[keyof typeof Re
 
 
 export const ReviewRequestDecision = {
+  submit: 'submit',
   approve: 'approve',
   reject: 'reject',
   archive: 'archive',

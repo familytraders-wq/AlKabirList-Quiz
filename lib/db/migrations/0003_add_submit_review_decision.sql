@@ -1,0 +1,1 @@
+ALTER TYPE "review_decision" ADD VALUE IF NOT EXISTS 'submit';

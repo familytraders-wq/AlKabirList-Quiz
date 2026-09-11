@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   foreignKey,
   integer,
@@ -26,6 +27,16 @@ export const users = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
+    firstName: text("first_name"),
+    lastName: text("last_name"),
+    email: text("email"),
+    country: text("country"),
+    city: text("city"),
+    state: text("state"),
+    announcementConsent: boolean("announcement_consent").notNull().default(false),
+    consentAt: timestamp("consent_at", { withTimezone: true }),
+    consentVersion: text("consent_version"),
+    profileCompletedAt: timestamp("profile_completed_at", { withTimezone: true }),
   },
   (table) => [index("users_clerk_user_id_idx").on(table.clerkUserId)],
 );

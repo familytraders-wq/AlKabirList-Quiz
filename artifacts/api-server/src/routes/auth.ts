@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { and, eq, isNull, gt, count } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { anonymousSessions, quizAttempts } from "@workspace/db/schema";
+import { anonymousSessions, quizAttempts, users } from "@workspace/db/schema";
 import {
   getRequestUser,
   optionalUser,
@@ -20,6 +20,13 @@ const router = Router();
 router.get("/auth/me", optionalUser, async (req, res, next) => {
   try {
     const user = getRequestUser(req);
+    const profile = user
+      ? await db.query.users.findFirst({ where: eq(users.id, user.id) })
+      : null;
+    const profileComplete = Boolean(
+      profile?.firstName && profile.lastName && profile.email && profile.country &&
+      profile.city && profile.announcementConsent && profile.profileCompletedAt,
+    );
     const anonymousToken = getAnonymousToken(req);
     let guestAttemptCount = 0;
 
@@ -54,6 +61,8 @@ router.get("/auth/me", optionalUser, async (req, res, next) => {
         count: guestAttemptCount,
         hasUnlinkedProgress: guestAttemptCount > 0,
       },
+      profileComplete,
+      onboardingRequired: Boolean(user) && !profileComplete,
     });
   } catch (error) {
     next(error);

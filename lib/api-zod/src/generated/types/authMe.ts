@@ -12,4 +12,6 @@ export interface AuthMe {
   authenticated: boolean;
   user: AuthUser | null;
   guestProgress: GuestProgress;
+  profileComplete: boolean;
+  onboardingRequired: boolean;
 }

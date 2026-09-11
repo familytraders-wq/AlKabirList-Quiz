@@ -20,6 +20,7 @@ import {
   guestProgressLinks,
   reviewEvents,
   users,
+  userRoles,
 } from "@workspace/db/schema";
 import { createApp } from "../app";
 
@@ -76,6 +77,9 @@ const identities = new Map<string, Identity>(
 
 let server: Server | undefined;
 let baseUrl: string;
+const scheduledQuizIds: string[] = [];
+const scheduledQuestionIds: string[] = [];
+const scheduledVersionIds: string[] = [];
 const fixture = {
   approvedQuizId: randomUUID(),
   approvedQuestionId: randomUUID(),
@@ -136,6 +140,19 @@ async function request(
   for (const value of setCookies) jar?.setCookieHeader(value);
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : undefined, headers: response.headers };
+}
+
+async function adminMutation(
+  path: string,
+  options: RequestInit,
+  identity: Identity,
+  jar = new CookieJar(),
+) {
+  await request("/auth/me", {}, identity, jar);
+  const headers = new Headers(options.headers);
+  headers.set("origin", "http://localhost:5173");
+  headers.set("x-csrf-token", jar.get("alkabir_csrf")!);
+  return request(path, { ...options, headers }, identity, jar);
 }
 
 async function insertQuestion(input: {
@@ -283,6 +300,7 @@ after(async () => {
     await db.delete(quizAttempts).where(inArray(quizAttempts.id, attemptIds));
   }
   await db.delete(reviewEvents).where(eq(reviewEvents.questionId, fixture.reviewQuestionId));
+  if (scheduledQuestionIds.length) await db.delete(reviewEvents).where(inArray(reviewEvents.questionId, scheduledQuestionIds));
   await db.delete(guestProgressLinks).where(
     inArray(guestProgressLinks.userId, [member.userId, otherMember.userId]),
   );
@@ -298,6 +316,12 @@ after(async () => {
     fixture.draftQuizId,
     fixture.pendingQuizId,
   ]));
+  if (scheduledQuizIds.length) await db.delete(quizzes).where(inArray(quizzes.id, scheduledQuizIds));
+  if (scheduledQuestionIds.length) {
+    await db.delete(questionChoices).where(inArray(questionChoices.versionId, scheduledVersionIds));
+    await db.delete(questionVersions).where(inArray(questionVersions.id, scheduledVersionIds));
+    await db.delete(questions).where(inArray(questions.id, scheduledQuestionIds));
+  }
   await db.delete(questionChoices).where(inArray(questionChoices.versionId, [
     fixture.approvedVersionId,
     fixture.draftVersionId,
@@ -673,7 +697,7 @@ describe("quiz submission safety", () => {
   });
 
   it("rejects a stale review without publishing the question", async () => {
-    const firstReview = await request(
+    const firstReview = await adminMutation(
       `/admin/quiz/questions/${fixture.reviewQuestionId}/reviews`,
       {
         method: "POST",
@@ -687,7 +711,7 @@ describe("quiz submission safety", () => {
     );
     assert.equal(firstReview.status, 200);
 
-    const staleReview = await request(
+    const staleReview = await adminMutation(
       `/admin/quiz/questions/${fixture.reviewQuestionId}/reviews`,
       {
         method: "POST",
@@ -813,5 +837,170 @@ describe("quiz submission safety", () => {
     const transferred = await db.select().from(quizAttempts).where(eq(quizAttempts.id, started.body.attemptId));
     assert.equal(transferred[0]?.anonymousSessionId, null);
     assert.ok(transferred[0]?.userId === member.userId || transferred[0]?.userId === otherMember.userId);
+  });
+});
+
+describe("quiz scheduling operations", () => {
+  const scheduleBody = (date: string, questions = [{ versionId: fixture.approvedVersionId, points: 30 }]) => ({
+    title: "Operations fixture",
+    scheduledDate: date,
+    timezone: "UTC",
+    isActive: false,
+    questions,
+  });
+
+  it("allows reviewer operations but denies ordinary members", async () => {
+    assert.equal((await request("/admin/quiz/quizzes", {}, member)).status, 403);
+    const questionList = await request("/admin/quiz/questions?status=approved", {}, reviewer);
+    assert.equal(questionList.status, 200);
+    assert.equal(questionList.body.items.find((item: { id: string }) => item.id === fixture.approvedQuestionId)?.points, 25);
+    const created = await adminMutation("/admin/quiz/quizzes", {
+      method: "POST",
+      body: JSON.stringify(scheduleBody(`2099-01-${String(10 + scheduledQuizIds.length).padStart(2, "0")}`)),
+    }, reviewer);
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    scheduledQuizIds.push(created.body.id);
+    assert.equal((await adminMutation(`/admin/quiz/quizzes/${created.body.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ ...scheduleBody("2099-01-20"), title: "Updated operations fixture", isActive: true }),
+    }, reviewer)).status, 200);
+    assert.equal((await request(`/admin/quiz/quizzes/${created.body.id}/preview`, {}, reviewer)).status, 200);
+  });
+
+  it("rejects unsafe admin mutations without origin/CSRF and accepts a valid token", async () => {
+    const body = scheduleBody("2099-05-01");
+    const missingOrigin = await request("/admin/quiz/quizzes", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }, reviewer);
+    assert.equal(missingOrigin.status, 403);
+
+    const jar = new CookieJar();
+    await request("/auth/me", {}, reviewer, jar);
+    const invalidToken = await request("/admin/quiz/quizzes", {
+      method: "POST",
+      headers: { origin: "http://localhost:5173", "x-csrf-token": "invalid" },
+      body: JSON.stringify(body),
+    }, reviewer, jar);
+    assert.equal(invalidToken.status, 403);
+
+    const valid = await adminMutation("/admin/quiz/quizzes", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }, reviewer);
+    assert.equal(valid.status, 201);
+    scheduledQuizIds.push(valid.body.id);
+  });
+
+  it("rejects non-approved, non-current, and duplicate versions", async () => {
+    const draft = await adminMutation("/admin/quiz/quizzes", {
+      method: "POST",
+      body: JSON.stringify(scheduleBody("2099-02-01", [{ versionId: fixture.draftVersionId, points: 10 }])),
+    }, reviewer);
+    assert.equal(draft.status, 400);
+    const duplicate = await adminMutation("/admin/quiz/quizzes", {
+      method: "POST",
+      body: JSON.stringify(scheduleBody("2099-02-02", [
+        { versionId: fixture.approvedVersionId, points: 10 },
+        { versionId: fixture.approvedVersionId, points: 20 },
+      ])),
+    }, reviewer);
+    assert.equal(duplicate.status, 400);
+  });
+
+  it("keeps one daily slot under concurrent creates and replaces ordered membership transactionally", async () => {
+    const secondQuestionId = randomUUID();
+    const secondVersionId = randomUUID();
+    const secondChoiceId = randomUUID();
+    scheduledQuestionIds.push(secondQuestionId);
+    scheduledVersionIds.push(secondVersionId);
+    await insertQuestion({
+      questionId: secondQuestionId,
+      versionId: secondVersionId,
+      status: "approved",
+      prompt: "Second approved scheduling fixture",
+      choiceIds: [{ id: secondChoiceId, label: "Only choice", isCorrect: true }],
+    });
+    const date = "2099-03-01";
+    const responses = await Promise.all([1, 2].map(() => adminMutation("/admin/quiz/quizzes", {
+      method: "POST",
+      body: JSON.stringify(scheduleBody(date)),
+    }, reviewer)));
+    assert.deepEqual(responses.map((item) => item.status).sort(), [201, 409]);
+    const created = responses.find((item) => item.status === 201)!;
+    scheduledQuizIds.push(created.body.id);
+    const updated = await adminMutation(`/admin/quiz/quizzes/${created.body.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(scheduleBody(date, [
+        { versionId: secondVersionId, points: 7 },
+        { versionId: fixture.approvedVersionId, points: 19 },
+      ])),
+    }, reviewer);
+    assert.equal(updated.status, 200, JSON.stringify(updated.body));
+    assert.deepEqual(updated.body.questions, [
+      { versionId: secondVersionId, points: 7 },
+      { versionId: fixture.approvedVersionId, points: 19 },
+    ]);
+  });
+
+  it("redacts answer metadata from the exact public preview", async () => {
+    const created = await adminMutation("/admin/quiz/quizzes", {
+      method: "POST",
+      body: JSON.stringify(scheduleBody("2099-04-01")),
+    }, reviewer);
+    assert.equal(created.status, 201);
+    scheduledQuizIds.push(created.body.id);
+    const preview = await request(`/admin/quiz/quizzes/${created.body.id}/preview`, {}, reviewer);
+    assert.equal(preview.status, 200);
+    assert.equal(preview.body.questions[0].prompt, "Approved fixture question");
+    assert.ok(preview.body.questions[0].choices.length > 0);
+    const serialized = JSON.stringify(preview.body);
+    assert.equal(serialized.includes("isCorrect"), false);
+    assert.equal(serialized.includes("correctChoiceId"), false);
+    assert.equal(serialized.includes("answer"), false);
+  });
+});
+
+describe("question review transitions", () => {
+  it("submits drafts, approves pending questions, and rejects invalid or stale decisions", async () => {
+    const questionId = randomUUID();
+    const versionId = randomUUID();
+    scheduledQuestionIds.push(questionId);
+    scheduledVersionIds.push(versionId);
+    await insertQuestion({
+      questionId,
+      versionId,
+      status: "draft",
+      prompt: "Review transition fixture",
+      choiceIds: [{ id: randomUUID(), label: "Answer", isCorrect: true }],
+    });
+
+    const directApproval = await adminMutation(`/admin/quiz/questions/${questionId}/reviews`, {
+      method: "POST",
+      body: JSON.stringify({ expectedStatus: "draft", decision: "approve" }),
+    }, reviewer);
+    assert.equal(directApproval.status, 409);
+    assert.equal(directApproval.body.code, "INVALID_REVIEW_TRANSITION");
+
+    const submitted = await adminMutation(`/admin/quiz/questions/${questionId}/reviews`, {
+      method: "POST",
+      body: JSON.stringify({ expectedStatus: "draft", decision: "submit" }),
+    }, reviewer);
+    assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
+    assert.equal(submitted.body.status, "pending_review");
+
+    const approved = await adminMutation(`/admin/quiz/questions/${questionId}/reviews`, {
+      method: "POST",
+      body: JSON.stringify({ expectedStatus: "pending_review", decision: "approve" }),
+    }, reviewer);
+    assert.equal(approved.status, 200, JSON.stringify(approved.body));
+    assert.equal(approved.body.status, "approved");
+
+    const stale = await adminMutation(`/admin/quiz/questions/${questionId}/reviews`, {
+      method: "POST",
+      body: JSON.stringify({ expectedStatus: "pending_review", decision: "reject" }),
+    }, reviewer);
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.code, "STALE_REVIEW");
   });
 });

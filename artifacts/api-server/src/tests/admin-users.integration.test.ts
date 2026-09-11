@@ -8,6 +8,7 @@ import { db, pool } from "@workspace/db";
 import { userRoles, users } from "@workspace/db/schema";
 import { createApp } from "../app";
 import { resolveUser } from "../lib/auth";
+import { bootstrapAdmin } from "../scripts/bootstrap-admin";
 
 type Identity = { userId: string; role: "member" | "reviewer" | "admin" };
 type Result = { status: number; body: any; cookies: string[] };
@@ -33,9 +34,10 @@ const middlewareOnlyAdmin: Identity = { userId: randomUUID(), role: "admin" };
 const legacyClerkId = "user_legacy-access-19";
 const reviewer: Identity = { userId: randomUUID(), role: "reviewer" };
 const member: Identity = { userId: randomUUID(), role: "member" };
+const bootstrapClerkId = `user_bootstrap_${randomUUID()}`;
 const identities = new Map([admin, secondAdmin, middlewareOnlyAdmin, reviewer, member].map((identity) => [identity.userId, identity]));
 const extraUsers = [randomUUID()];
-const allUserIds = [admin.userId, secondAdmin.userId, middlewareOnlyAdmin.userId, reviewer.userId, member.userId, legacyClerkId, ...extraUsers];
+const allUserIds = [admin.userId, secondAdmin.userId, middlewareOnlyAdmin.userId, reviewer.userId, member.userId, legacyClerkId, bootstrapClerkId, ...extraUsers];
 let server: Server;
 let baseUrl: string;
 
@@ -63,7 +65,10 @@ async function mutation(path: string, identity: Identity, method: "POST" | "DELE
 }
 
 before(async () => {
-  await db.insert(users).values(allUserIds.map((id) => ({ id, role: "member" as const })));
+  await db.insert(users).values([
+    ...allUserIds.filter((id) => id !== bootstrapClerkId).map((id) => ({ id, role: "member" as const })),
+    { id: bootstrapClerkId, clerkUserId: bootstrapClerkId, role: "member" as const },
+  ]);
   await db.insert(userRoles).values([
     { userId: admin.userId, role: "admin" },
     { userId: secondAdmin.userId, role: "admin" },
@@ -88,6 +93,15 @@ after(async () => {
 });
 
 describe("admin user access management", () => {
+  it("bootstraps an existing Clerk user idempotently and rejects missing identities", async () => {
+    assert.equal(await bootstrapAdmin(bootstrapClerkId), "granted");
+    assert.equal(await bootstrapAdmin(bootstrapClerkId), "already_granted");
+    await assert.rejects(
+      () => bootstrapAdmin(`user_missing_${randomUUID()}`),
+      /No signed-in user matches/,
+    );
+    await db.delete(userRoles).where(eq(userRoles.userId, bootstrapClerkId));
+  });
   it("forbids reviewers and allows admins to list users", async () => {
     assert.equal((await request("/admin/users", reviewer)).status, 403);
     const result = await request("/admin/users", admin);

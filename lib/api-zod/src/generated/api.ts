@@ -291,6 +291,9 @@ export const ListAdminQuestionsQueryParams = zod.object({
   "offset": zod.coerce.number().int().min(listAdminQuestionsQueryOffsetMin).default(listAdminQuestionsQueryOffsetDefault)
 })
 
+
+
+
 export const ListAdminQuestionsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.string().uuid(),
@@ -299,6 +302,7 @@ export const ListAdminQuestionsResponse = zod.object({
   "version": zod.number().int(),
   "prompt": zod.string(),
   "explanation": zod.string(),
+  "points": zod.number().int().min(1),
   "choices": zod.array(zod.object({
   "label": zod.string(),
   "position": zod.number().int(),
@@ -340,6 +344,9 @@ export const CreateAdminQuestionBody = zod.object({
 }))
 })
 
+
+
+
 export const CreateAdminQuestionResponse = zod.object({
   "id": zod.string().uuid(),
   "status": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'archived']),
@@ -347,6 +354,7 @@ export const CreateAdminQuestionResponse = zod.object({
   "version": zod.number().int(),
   "prompt": zod.string(),
   "explanation": zod.string(),
+  "points": zod.number().int().min(1),
   "choices": zod.array(zod.object({
   "label": zod.string(),
   "position": zod.number().int(),
@@ -390,6 +398,9 @@ export const UpdateAdminQuestionBody = zod.object({
 }))
 })
 
+
+
+
 export const UpdateAdminQuestionResponse = zod.object({
   "id": zod.string().uuid(),
   "status": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'archived']),
@@ -397,6 +408,7 @@ export const UpdateAdminQuestionResponse = zod.object({
   "version": zod.number().int(),
   "prompt": zod.string(),
   "explanation": zod.string(),
+  "points": zod.number().int().min(1),
   "choices": zod.array(zod.object({
   "label": zod.string(),
   "position": zod.number().int(),
@@ -417,10 +429,13 @@ export const ReviewQuestionParams = zod.object({
 })
 
 export const ReviewQuestionBody = zod.object({
-  "decision": zod.enum(['approve', 'reject', 'archive']),
+  "decision": zod.enum(['submit', 'approve', 'reject', 'archive']),
   "expectedStatus": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'archived']),
   "note": zod.string().optional()
 })
+
+
+
 
 export const ReviewQuestionResponse = zod.object({
   "id": zod.string().uuid(),
@@ -429,6 +444,7 @@ export const ReviewQuestionResponse = zod.object({
   "version": zod.number().int(),
   "prompt": zod.string(),
   "explanation": zod.string(),
+  "points": zod.number().int().min(1),
   "choices": zod.array(zod.object({
   "label": zod.string(),
   "position": zod.number().int(),
@@ -491,6 +507,139 @@ export const CreateGenerationRunResponse = zod.object({
 export const GetQuizAnalyticsResponse = zod.object({
   "questionCounts": zod.record(zod.string(), zod.number().int()),
   "attemptCounts": zod.record(zod.string(), zod.number().int())
+})
+
+
+/**
+ * @summary List scheduled quizzes and question summaries
+ */
+export const listAdminQuizzesResponseItemsItemScheduledDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
+
+export const ListAdminQuizzesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "slug": zod.string(),
+  "title": zod.string(),
+  "scheduledDate": zod.string().regex(listAdminQuizzesResponseItemsItemScheduledDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
+  "timezone": zod.string(),
+  "isActive": zod.boolean(),
+  "questionCount": zod.number().int(),
+  "questions": zod.array(zod.object({
+  "versionId": zod.string().uuid(),
+  "points": zod.number().int().min(1)
+}))
+}))
+})
+
+
+/**
+ * @summary Schedule a quiz from approved current question versions
+ */
+export const createAdminQuizBodyTitleMax = 200;
+
+export const createAdminQuizBodyScheduledDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
+
+
+export const CreateAdminQuizBody = zod.object({
+  "title": zod.string().min(1).max(createAdminQuizBodyTitleMax),
+  "scheduledDate": zod.string().regex(createAdminQuizBodyScheduledDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
+  "timezone": zod.enum(['UTC']),
+  "isActive": zod.boolean(),
+  "questions": zod.array(zod.object({
+  "versionId": zod.string().uuid(),
+  "points": zod.number().int().min(1)
+})).min(1)
+})
+
+export const createAdminQuizResponseScheduledDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
+
+export const CreateAdminQuizResponse = zod.object({
+  "id": zod.string().uuid(),
+  "slug": zod.string(),
+  "title": zod.string(),
+  "scheduledDate": zod.string().regex(createAdminQuizResponseScheduledDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
+  "timezone": zod.string(),
+  "isActive": zod.boolean(),
+  "questionCount": zod.number().int(),
+  "questions": zod.array(zod.object({
+  "versionId": zod.string().uuid(),
+  "points": zod.number().int().min(1)
+}))
+})
+
+
+export const UpdateAdminQuizParams = zod.object({
+  "quizId": zod.coerce.string().uuid()
+})
+
+export const updateAdminQuizBodyTitleMax = 200;
+
+export const updateAdminQuizBodyScheduledDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
+
+
+export const UpdateAdminQuizBody = zod.object({
+  "title": zod.string().min(1).max(updateAdminQuizBodyTitleMax),
+  "scheduledDate": zod.string().regex(updateAdminQuizBodyScheduledDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
+  "timezone": zod.enum(['UTC']),
+  "isActive": zod.boolean(),
+  "questions": zod.array(zod.object({
+  "versionId": zod.string().uuid(),
+  "points": zod.number().int().min(1)
+})).min(1)
+})
+
+export const updateAdminQuizResponseScheduledDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
+
+export const UpdateAdminQuizResponse = zod.object({
+  "id": zod.string().uuid(),
+  "slug": zod.string(),
+  "title": zod.string(),
+  "scheduledDate": zod.string().regex(updateAdminQuizResponseScheduledDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
+  "timezone": zod.string(),
+  "isActive": zod.boolean(),
+  "questionCount": zod.number().int(),
+  "questions": zod.array(zod.object({
+  "versionId": zod.string().uuid(),
+  "points": zod.number().int().min(1)
+}))
+})
+
+
+export const PreviewAdminQuizParams = zod.object({
+  "quizId": zod.coerce.string().uuid()
+})
+
+export const previewAdminQuizResponseScheduledDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
+export const PreviewAdminQuizResponse = zod.object({
+  "id": zod.string().uuid(),
+  "title": zod.string(),
+  "scheduledDate": zod.string().regex(previewAdminQuizResponseScheduledDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
+  "timezone": zod.string(),
+  "isActive": zod.boolean(),
+  "questions": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "versionId": zod.string().uuid(),
+  "prompt": zod.string(),
+  "type": zod.enum(['multiple_choice', 'true_false']),
+  "points": zod.number().int(),
+  "choices": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "label": zod.string(),
+  "position": zod.number().int()
+}))
+}))
 })
 
 
@@ -592,7 +741,9 @@ export const GetAuthMeResponse = zod.object({
   "guestProgress": zod.object({
   "count": zod.number().int().min(getAuthMeResponseGuestProgressCountMin),
   "hasUnlinkedProgress": zod.boolean()
-})
+}),
+  "profileComplete": zod.boolean(),
+  "onboardingRequired": zod.boolean()
 })
 
 
@@ -610,4 +761,113 @@ export const linkGuestProgressResponseLinkedAttemptCountMin = 0;
 export const LinkGuestProgressResponse = zod.object({
   "linked": zod.boolean(),
   "linkedAttemptCount": zod.number().int().min(linkGuestProgressResponseLinkedAttemptCountMin)
+})
+
+
+/**
+ * @summary Get the authenticated member profile
+ */
+export const getMyProfileResponseCountryRegExp = new RegExp('^[A-Z]{2}$');
+
+
+export const GetMyProfileResponse = zod.object({
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "email": zod.string().email(),
+  "country": zod.string().regex(getMyProfileResponseCountryRegExp),
+  "city": zod.string(),
+  "state": zod.string().nullable(),
+  "announcementConsent": zod.boolean(),
+  "consentAt": zod.coerce.date().nullable(),
+  "consentVersion": zod.string().nullable(),
+  "profileCompletedAt": zod.coerce.date().nullable(),
+  "profileComplete": zod.boolean()
+})
+
+
+/**
+ * @summary Create or update the authenticated member profile
+ */
+export const updateMyProfileBodyFirstNameMax = 100;
+
+export const updateMyProfileBodyLastNameMax = 100;
+
+export const updateMyProfileBodyCountryMin = 2;
+export const updateMyProfileBodyCountryMax = 2;
+
+export const updateMyProfileBodyCityMax = 120;
+
+export const updateMyProfileBodyStateMax = 100;
+
+
+
+export const UpdateMyProfileBody = zod.object({
+  "firstName": zod.string().min(1).max(updateMyProfileBodyFirstNameMax).optional(),
+  "lastName": zod.string().min(1).max(updateMyProfileBodyLastNameMax).optional(),
+  "email": zod.string().email().optional(),
+  "country": zod.string().min(updateMyProfileBodyCountryMin).max(updateMyProfileBodyCountryMax).optional(),
+  "city": zod.string().min(1).max(updateMyProfileBodyCityMax).optional(),
+  "state": zod.string().max(updateMyProfileBodyStateMax).nullish(),
+  "announcementConsent": zod.boolean().optional()
+})
+
+export const updateMyProfileResponseCountryRegExp = new RegExp('^[A-Z]{2}$');
+
+
+export const UpdateMyProfileResponse = zod.object({
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "email": zod.string().email(),
+  "country": zod.string().regex(updateMyProfileResponseCountryRegExp),
+  "city": zod.string(),
+  "state": zod.string().nullable(),
+  "announcementConsent": zod.boolean(),
+  "consentAt": zod.coerce.date().nullable(),
+  "consentVersion": zod.string().nullable(),
+  "profileCompletedAt": zod.coerce.date().nullable(),
+  "profileComplete": zod.boolean()
+})
+
+
+/**
+ * @summary Partially update the authenticated member profile
+ */
+export const patchMyProfileBodyFirstNameMax = 100;
+
+export const patchMyProfileBodyLastNameMax = 100;
+
+export const patchMyProfileBodyCountryMin = 2;
+export const patchMyProfileBodyCountryMax = 2;
+
+export const patchMyProfileBodyCityMax = 120;
+
+export const patchMyProfileBodyStateMax = 100;
+
+
+
+export const PatchMyProfileBody = zod.object({
+  "firstName": zod.string().min(1).max(patchMyProfileBodyFirstNameMax).optional(),
+  "lastName": zod.string().min(1).max(patchMyProfileBodyLastNameMax).optional(),
+  "email": zod.string().email().optional(),
+  "country": zod.string().min(patchMyProfileBodyCountryMin).max(patchMyProfileBodyCountryMax).optional(),
+  "city": zod.string().min(1).max(patchMyProfileBodyCityMax).optional(),
+  "state": zod.string().max(patchMyProfileBodyStateMax).nullish(),
+  "announcementConsent": zod.boolean().optional()
+})
+
+export const patchMyProfileResponseCountryRegExp = new RegExp('^[A-Z]{2}$');
+
+
+export const PatchMyProfileResponse = zod.object({
+  "firstName": zod.string(),
+  "lastName": zod.string(),
+  "email": zod.string().email(),
+  "country": zod.string().regex(patchMyProfileResponseCountryRegExp),
+  "city": zod.string(),
+  "state": zod.string().nullable(),
+  "announcementConsent": zod.boolean(),
+  "consentAt": zod.coerce.date().nullable(),
+  "consentVersion": zod.string().nullable(),
+  "profileCompletedAt": zod.coerce.date().nullable(),
+  "profileComplete": zod.boolean()
 })

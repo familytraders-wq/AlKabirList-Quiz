@@ -17,6 +17,8 @@ tags:
     description: UTC daily challenge progress
   - name: auth
     description: Authentication and explicit guest-progress linking
+  - name: profile
+    description: Authenticated member profile onboarding
 paths:
   /healthz:
     get:
@@ -301,6 +303,70 @@ paths:
                 $ref: "#/components/schemas/QuizAnalytics"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /admin/quiz/quizzes:
+    get:
+      operationId: listAdminQuizzes
+      tags: [admin]
+      summary: List scheduled quizzes and question summaries
+      responses:
+        "200":
+          description: Scheduled quiz records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminQuizList"
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      operationId: createAdminQuiz
+      tags: [admin]
+      summary: Schedule a quiz from approved current question versions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuizScheduleRequest"
+      responses:
+        "201":
+          description: Scheduled quiz
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminQuiz"
+        "409": { $ref: "#/components/responses/Conflict" }
+  /admin/quiz/quizzes/{quizId}:
+    patch:
+      operationId: updateAdminQuiz
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/QuizId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuizScheduleRequest"
+      responses:
+        "200":
+          description: Updated scheduled quiz
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminQuiz"
+        "409": { $ref: "#/components/responses/Conflict" }
+  /admin/quiz/quizzes/{quizId}/preview:
+    get:
+      operationId: previewAdminQuiz
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/QuizId"
+      responses:
+        "200":
+          description: Exact public payload without answers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminQuizPreview"
   /admin/users:
     get:
       operationId: listAdminUsers
@@ -412,6 +478,62 @@ paths:
           description: Origin or CSRF validation failed
         "410":
           description: Anonymous session expired
+  /me/profile:
+    get:
+      operationId: getMyProfile
+      tags: [profile]
+      summary: Get the authenticated member profile
+      responses:
+        "200":
+          description: Current profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      operationId: updateMyProfile
+      tags: [profile]
+      summary: Create or update the authenticated member profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberProfileUpdate"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      operationId: patchMyProfile
+      tags: [profile]
+      summary: Partially update the authenticated member profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberProfileUpdate"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 components:
   parameters:
     AttemptId:
@@ -424,6 +546,13 @@ components:
     QuestionId:
       in: path
       name: questionId
+      required: true
+      schema:
+        type: string
+        format: uuid
+    QuizId:
+      in: path
+      name: quizId
       required: true
       schema:
         type: string
@@ -735,7 +864,7 @@ components:
                 format: uri
     AdminQuestion:
       type: object
-      required: [id, status, versionId, version, prompt, explanation, choices, sourceMetadata]
+      required: [id, status, versionId, version, prompt, explanation, points, choices, sourceMetadata]
       properties:
         id:
           type: string
@@ -751,6 +880,9 @@ components:
           type: string
         explanation:
           type: string
+        points:
+          type: integer
+          minimum: 1
         choices:
           type: array
           items:
@@ -782,7 +914,7 @@ components:
       properties:
         decision:
           type: string
-          enum: [approve, reject, archive]
+          enum: [submit, approve, reject, archive]
         expectedStatus:
           $ref: "#/components/schemas/QuestionStatus"
         note:
@@ -832,6 +964,58 @@ components:
           type: object
           additionalProperties:
             type: integer
+    QuizQuestionMembership:
+      type: object
+      required: [versionId, points]
+      properties:
+        versionId: { type: string, format: uuid }
+        points: { type: integer, minimum: 1 }
+    QuizScheduleRequest:
+      type: object
+      required: [title, scheduledDate, timezone, isActive, questions]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        scheduledDate:
+          $ref: "#/components/schemas/CanonicalDailyDate"
+        timezone: { type: string, enum: [UTC] }
+        isActive: { type: boolean }
+        questions:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/QuizQuestionMembership" }
+    AdminQuiz:
+      type: object
+      required: [id, slug, title, scheduledDate, timezone, isActive, questionCount, questions]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        title: { type: string }
+        scheduledDate: { $ref: "#/components/schemas/CanonicalDailyDate" }
+        timezone: { type: string }
+        isActive: { type: boolean }
+        questionCount: { type: integer }
+        questions:
+          type: array
+          items: { $ref: "#/components/schemas/QuizQuestionMembership" }
+    AdminQuizList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AdminQuiz" }
+    AdminQuizPreview:
+      type: object
+      required: [id, title, scheduledDate, timezone, isActive, questions]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        scheduledDate: { $ref: "#/components/schemas/CanonicalDailyDate" }
+        timezone: { type: string }
+        isActive: { type: boolean }
+        questions:
+          type: array
+          items: { $ref: "#/components/schemas/PublicQuestion" }
     CanonicalDailyDate:
       type: string
       pattern: '^\d{4}-\d{2}-\d{2}$'
@@ -892,7 +1076,11 @@ components:
             - type: "null"
         guestProgress:
           $ref: "#/components/schemas/GuestProgress"
-      required: [authenticated, user, guestProgress]
+        profileComplete:
+          type: boolean
+        onboardingRequired:
+          type: boolean
+      required: [authenticated, user, guestProgress, profileComplete, onboardingRequired]
     AuthUser:
       type: object
       properties:
@@ -964,3 +1152,28 @@ components:
           type: integer
           minimum: 0
       required: [linked, linkedAttemptCount]
+    MemberProfile:
+      type: object
+      required: [firstName, lastName, email, country, city, state, announcementConsent, consentAt, consentVersion, profileCompletedAt, profileComplete]
+      properties:
+        firstName: { type: string }
+        lastName: { type: string }
+        email: { type: string, format: email }
+        country: { type: string, pattern: '^[A-Z]{2}$' }
+        city: { type: string }
+        state: { type: string, nullable: true }
+        announcementConsent: { type: boolean }
+        consentAt: { type: string, format: date-time, nullable: true }
+        consentVersion: { type: string, nullable: true }
+        profileCompletedAt: { type: string, format: date-time, nullable: true }
+        profileComplete: { type: boolean }
+    MemberProfileUpdate:
+      type: object
+      properties:
+        firstName: { type: string, minLength: 1, maxLength: 100 }
+        lastName: { type: string, minLength: 1, maxLength: 100 }
+        email: { type: string, format: email }
+        country: { type: string, minLength: 2, maxLength: 2 }
+        city: { type: string, minLength: 1, maxLength: 120 }
+        state: { type: string, maxLength: 100, nullable: true }
+        announcementConsent: { type: boolean }

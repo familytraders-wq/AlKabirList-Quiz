@@ -22,6 +22,9 @@ import type {
 import type {
   AdminQuestion,
   AdminQuestionList,
+  AdminQuiz,
+  AdminQuizList,
+  AdminQuizPreview,
   AdminUser,
   AdminUserList,
   AnswerResult,
@@ -36,6 +39,8 @@ import type {
   LinkGuestProgressRequest,
   LinkGuestProgressResult,
   ListAdminQuestionsParams,
+  MemberProfile,
+  MemberProfileUpdate,
   NotFoundResponse,
   QuestionWriteRequest,
   QuizAnalytics,
@@ -43,6 +48,7 @@ import type {
   QuizHistory,
   QuizProgress,
   QuizResult,
+  QuizScheduleRequest,
   ReviewRequest,
   RoleChangeRequest,
   StartAttemptRequest,
@@ -1305,6 +1311,325 @@ export function useGetQuizAnalytics<TData = Awaited<ReturnType<typeof getQuizAna
 
 
 
+export const getListAdminQuizzesUrl = () => {
+
+
+
+
+  return `/api/admin/quiz/quizzes`
+}
+
+/**
+ * @summary List scheduled quizzes and question summaries
+ */
+export const listAdminQuizzes = async ( options?: Parameters<typeof customFetch>[1]): Promise<AdminQuizList> => {
+
+  return customFetch<AdminQuizList>(getListAdminQuizzesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAdminQuizzesQueryKey = () => {
+    return [
+    `/api/admin/quiz/quizzes`
+    ] as const;
+    }
+
+
+export const getListAdminQuizzesQueryOptions = <TData = Awaited<ReturnType<typeof listAdminQuizzes>>, TError = ErrorType<ForbiddenResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdminQuizzes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAdminQuizzesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdminQuizzes>>> = ({ signal }) => listAdminQuizzes({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdminQuizzes>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAdminQuizzesQueryResult = NonNullable<Awaited<ReturnType<typeof listAdminQuizzes>>>
+export type ListAdminQuizzesQueryError = ErrorType<ForbiddenResponse>
+
+
+/**
+ * @summary List scheduled quizzes and question summaries
+ */
+
+export function useListAdminQuizzes<TData = Awaited<ReturnType<typeof listAdminQuizzes>>, TError = ErrorType<ForbiddenResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdminQuizzes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAdminQuizzesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAdminQuizUrl = () => {
+
+
+
+
+  return `/api/admin/quiz/quizzes`
+}
+
+/**
+ * @summary Schedule a quiz from approved current question versions
+ */
+export const createAdminQuiz = async (quizScheduleRequest: QuizScheduleRequest, options?: Parameters<typeof customFetch>[1]): Promise<AdminQuiz> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdminQuiz>(getCreateAdminQuizUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(quizScheduleRequest)
+  }
+);}
+
+
+
+
+
+export const getCreateAdminQuizMutationKey = () => ['createAdminQuiz'] as const;
+
+export const getCreateAdminQuizMutationOptions = <TError = ErrorType<ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAdminQuiz>>, TError,CreateAdminQuizMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAdminQuiz>>, TError,CreateAdminQuizMutationVariables, TContext> => {
+
+const mutationKey = getCreateAdminQuizMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAdminQuiz>>, CreateAdminQuizMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAdminQuiz(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAdminQuizMutationResult = NonNullable<Awaited<ReturnType<typeof createAdminQuiz>>>
+    export type CreateAdminQuizMutationBody = BodyType<QuizScheduleRequest>
+    export type CreateAdminQuizMutationError = ErrorType<ConflictResponse>
+    export type CreateAdminQuizMutationVariables = {data: BodyType<QuizScheduleRequest>}
+
+    /**
+ * @summary Schedule a quiz from approved current question versions
+ */
+export const useCreateAdminQuiz = <TError = ErrorType<ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAdminQuiz>>, TError,CreateAdminQuizMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAdminQuiz>>,
+        TError,
+        CreateAdminQuizMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateAdminQuizMutationOptions(options));
+    }
+
+export const getUpdateAdminQuizUrl = (quizId: string,) => {
+
+
+
+
+  return `/api/admin/quiz/quizzes/${quizId}`
+}
+
+export const updateAdminQuiz = async (quizId: string,
+    quizScheduleRequest: QuizScheduleRequest, options?: Parameters<typeof customFetch>[1]): Promise<AdminQuiz> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdminQuiz>(getUpdateAdminQuizUrl(quizId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(quizScheduleRequest)
+  }
+);}
+
+
+
+
+
+export const getUpdateAdminQuizMutationKey = () => ['updateAdminQuiz'] as const;
+
+export const getUpdateAdminQuizMutationOptions = <TError = ErrorType<ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdminQuiz>>, TError,UpdateAdminQuizMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAdminQuiz>>, TError,UpdateAdminQuizMutationVariables, TContext> => {
+
+const mutationKey = getUpdateAdminQuizMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAdminQuiz>>, UpdateAdminQuizMutationVariables> = (props) => {
+          const {quizId,data} = props ?? {};
+
+          return  updateAdminQuiz(quizId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAdminQuizMutationResult = NonNullable<Awaited<ReturnType<typeof updateAdminQuiz>>>
+    export type UpdateAdminQuizMutationBody = BodyType<QuizScheduleRequest>
+    export type UpdateAdminQuizMutationError = ErrorType<ConflictResponse>
+    export type UpdateAdminQuizMutationVariables = {quizId: string;data: BodyType<QuizScheduleRequest>}
+
+    export const useUpdateAdminQuiz = <TError = ErrorType<ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdminQuiz>>, TError,UpdateAdminQuizMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAdminQuiz>>,
+        TError,
+        UpdateAdminQuizMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateAdminQuizMutationOptions(options));
+    }
+
+export const getPreviewAdminQuizUrl = (quizId: string,) => {
+
+
+
+
+  return `/api/admin/quiz/quizzes/${quizId}/preview`
+}
+
+export const previewAdminQuiz = async (quizId: string, options?: Parameters<typeof customFetch>[1]): Promise<AdminQuizPreview> => {
+
+  return customFetch<AdminQuizPreview>(getPreviewAdminQuizUrl(quizId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getPreviewAdminQuizQueryKey = (quizId: string,) => {
+    return [
+    `/api/admin/quiz/quizzes/${quizId}/preview`
+    ] as const;
+    }
+
+
+export const getPreviewAdminQuizQueryOptions = <TData = Awaited<ReturnType<typeof previewAdminQuiz>>, TError = ErrorType<unknown>>(quizId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof previewAdminQuiz>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getPreviewAdminQuizQueryKey(quizId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof previewAdminQuiz>>> = ({ signal }) => previewAdminQuiz(quizId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: quizId !== null && quizId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof previewAdminQuiz>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type PreviewAdminQuizQueryResult = NonNullable<Awaited<ReturnType<typeof previewAdminQuiz>>>
+export type PreviewAdminQuizQueryError = ErrorType<unknown>
+
+
+
+export function usePreviewAdminQuiz<TData = Awaited<ReturnType<typeof previewAdminQuiz>>, TError = ErrorType<unknown>>(
+ quizId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof previewAdminQuiz>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getPreviewAdminQuizQueryOptions(quizId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getListAdminUsersUrl = () => {
 
 
@@ -1723,4 +2048,257 @@ export const useLinkGuestProgress = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getLinkGuestProgressMutationOptions(options));
+    }
+
+export const getGetMyProfileUrl = () => {
+
+
+
+
+  return `/api/me/profile`
+}
+
+/**
+ * @summary Get the authenticated member profile
+ */
+export const getMyProfile = async ( options?: Parameters<typeof customFetch>[1]): Promise<MemberProfile> => {
+
+  return customFetch<MemberProfile>(getGetMyProfileUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetMyProfileQueryKey = () => {
+    return [
+    `/api/me/profile`
+    ] as const;
+    }
+
+
+export const getGetMyProfileQueryOptions = <TData = Awaited<ReturnType<typeof getMyProfile>>, TError = ErrorType<UnauthorizedResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMyProfile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetMyProfileQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getMyProfile>>> = ({ signal }) => getMyProfile({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getMyProfile>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetMyProfileQueryResult = NonNullable<Awaited<ReturnType<typeof getMyProfile>>>
+export type GetMyProfileQueryError = ErrorType<UnauthorizedResponse>
+
+
+/**
+ * @summary Get the authenticated member profile
+ */
+
+export function useGetMyProfile<TData = Awaited<ReturnType<typeof getMyProfile>>, TError = ErrorType<UnauthorizedResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getMyProfile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetMyProfileQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateMyProfileUrl = () => {
+
+
+
+
+  return `/api/me/profile`
+}
+
+/**
+ * @summary Create or update the authenticated member profile
+ */
+export const updateMyProfile = async (memberProfileUpdate: MemberProfileUpdate, options?: Parameters<typeof customFetch>[1]): Promise<MemberProfile> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<MemberProfile>(getUpdateMyProfileUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(memberProfileUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateMyProfileMutationKey = () => ['updateMyProfile'] as const;
+
+export const getUpdateMyProfileMutationOptions = <TError = ErrorType<BadRequestResponse | UnauthorizedResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMyProfile>>, TError,UpdateMyProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateMyProfile>>, TError,UpdateMyProfileMutationVariables, TContext> => {
+
+const mutationKey = getUpdateMyProfileMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateMyProfile>>, UpdateMyProfileMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateMyProfile(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateMyProfileMutationResult = NonNullable<Awaited<ReturnType<typeof updateMyProfile>>>
+    export type UpdateMyProfileMutationBody = BodyType<MemberProfileUpdate>
+    export type UpdateMyProfileMutationError = ErrorType<BadRequestResponse | UnauthorizedResponse>
+    export type UpdateMyProfileMutationVariables = {data: BodyType<MemberProfileUpdate>}
+
+    /**
+ * @summary Create or update the authenticated member profile
+ */
+export const useUpdateMyProfile = <TError = ErrorType<BadRequestResponse | UnauthorizedResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateMyProfile>>, TError,UpdateMyProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateMyProfile>>,
+        TError,
+        UpdateMyProfileMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateMyProfileMutationOptions(options));
+    }
+
+export const getPatchMyProfileUrl = () => {
+
+
+
+
+  return `/api/me/profile`
+}
+
+/**
+ * @summary Partially update the authenticated member profile
+ */
+export const patchMyProfile = async (memberProfileUpdate: MemberProfileUpdate, options?: Parameters<typeof customFetch>[1]): Promise<MemberProfile> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<MemberProfile>(getPatchMyProfileUrl(),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(memberProfileUpdate)
+  }
+);}
+
+
+
+
+
+export const getPatchMyProfileMutationKey = () => ['patchMyProfile'] as const;
+
+export const getPatchMyProfileMutationOptions = <TError = ErrorType<BadRequestResponse | UnauthorizedResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchMyProfile>>, TError,PatchMyProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof patchMyProfile>>, TError,PatchMyProfileMutationVariables, TContext> => {
+
+const mutationKey = getPatchMyProfileMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof patchMyProfile>>, PatchMyProfileMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  patchMyProfile(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PatchMyProfileMutationResult = NonNullable<Awaited<ReturnType<typeof patchMyProfile>>>
+    export type PatchMyProfileMutationBody = BodyType<MemberProfileUpdate>
+    export type PatchMyProfileMutationError = ErrorType<BadRequestResponse | UnauthorizedResponse>
+    export type PatchMyProfileMutationVariables = {data: BodyType<MemberProfileUpdate>}
+
+    /**
+ * @summary Partially update the authenticated member profile
+ */
+export const usePatchMyProfile = <TError = ErrorType<BadRequestResponse | UnauthorizedResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof patchMyProfile>>, TError,PatchMyProfileMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof patchMyProfile>>,
+        TError,
+        PatchMyProfileMutationVariables,
+        TContext
+      > => {
+      return useMutation(getPatchMyProfileMutationOptions(options));
     }

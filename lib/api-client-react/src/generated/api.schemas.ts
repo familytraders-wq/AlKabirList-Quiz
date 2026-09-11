@@ -195,6 +195,8 @@ export interface AdminQuestion {
   version: number;
   prompt: string;
   explanation: string;
+  /** @minimum 1 */
+  points: number;
   choices: QuestionChoiceInput[];
   sourceMetadata: AdminQuestionSourceMetadataItem[];
 }
@@ -208,6 +210,7 @@ export type ReviewRequestDecision = typeof ReviewRequestDecision[keyof typeof Re
 
 
 export const ReviewRequestDecision = {
+  submit: 'submit',
   approve: 'approve',
   reject: 'reject',
   archive: 'archive',
@@ -250,6 +253,56 @@ export type QuizAnalyticsAttemptCounts = {[key: string]: number};
 export interface QuizAnalytics {
   questionCounts: QuizAnalyticsQuestionCounts;
   attemptCounts: QuizAnalyticsAttemptCounts;
+}
+
+export interface QuizQuestionMembership {
+  versionId: string;
+  /** @minimum 1 */
+  points: number;
+}
+
+export type QuizScheduleRequestTimezone = typeof QuizScheduleRequestTimezone[keyof typeof QuizScheduleRequestTimezone];
+
+
+export const QuizScheduleRequestTimezone = {
+  UTC: 'UTC',
+} as const;
+
+export interface QuizScheduleRequest {
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  scheduledDate: CanonicalDailyDate;
+  timezone: QuizScheduleRequestTimezone;
+  isActive: boolean;
+  /** @minItems 1 */
+  questions: QuizQuestionMembership[];
+}
+
+export interface AdminQuiz {
+  id: string;
+  slug: string;
+  title: string;
+  scheduledDate: CanonicalDailyDate;
+  timezone: string;
+  isActive: boolean;
+  questionCount: number;
+  questions: QuizQuestionMembership[];
+}
+
+export interface AdminQuizList {
+  items: AdminQuiz[];
+}
+
+export interface AdminQuizPreview {
+  id: string;
+  title: string;
+  scheduledDate: CanonicalDailyDate;
+  timezone: string;
+  isActive: boolean;
+  questions: PublicQuestion[];
 }
 
 export interface DailyAttempt {
@@ -303,6 +356,8 @@ export interface AuthMe {
   authenticated: boolean;
   user: AuthUser | null;
   guestProgress: GuestProgress;
+  profileComplete: boolean;
+  onboardingRequired: boolean;
 }
 
 export type ManagedRole = typeof ManagedRole[keyof typeof ManagedRole];
@@ -340,6 +395,48 @@ export interface LinkGuestProgressResult {
   linked: boolean;
   /** @minimum 0 */
   linkedAttemptCount: number;
+}
+
+export interface MemberProfile {
+  firstName: string;
+  lastName: string;
+  email: string;
+  /** @pattern ^[A-Z]{2}$ */
+  country: string;
+  city: string;
+  state: string | null;
+  announcementConsent: boolean;
+  consentAt: string | null;
+  consentVersion: string | null;
+  profileCompletedAt: string | null;
+  profileComplete: boolean;
+}
+
+export interface MemberProfileUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  firstName?: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  lastName?: string;
+  email?: string;
+  /**
+     * @minLength 2
+     * @maxLength 2
+     */
+  country?: string;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  city?: string;
+  /** @maxLength 100 */
+  state?: string | null;
+  announcementConsent?: boolean;
 }
 
 /**

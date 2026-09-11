@@ -17,7 +17,12 @@ import NotFound from "@/pages/not-found";
 import { Home } from "@/pages/Home";
 import { Quiz } from "@/pages/Quiz";
 import { AdminUsers } from "@/pages/AdminUsers";
+import { AdminContent } from "@/pages/AdminContent";
+import { AdminSchedule } from "@/pages/AdminSchedule";
+import { Onboarding } from "@/pages/Onboarding";
+import { Profile } from "@/pages/Profile";
 import { GuestProgressPrompt } from "@/components/auth/GuestProgressPrompt";
+import { useGetAuthMe, getGetAuthMeQueryKey } from "@workspace/api-client-react";
 
 const queryClient = new QueryClient();
 const clerkPubKey = publishableKeyFromHost(
@@ -97,6 +102,30 @@ function HomeRedirect() {
   return isSignedIn ? <Redirect to="/member" /> : <Home />;
 }
 
+function RequireProfileComplete({ children }: { children: ReactNode }) {
+  const { isLoaded, isSignedIn } = useAuth();
+  const { data: authMe, isLoading } = useGetAuthMe({
+    query: {
+      enabled: isLoaded && isSignedIn,
+      queryKey: getGetAuthMeQueryKey()
+    }
+  });
+
+  if (!isLoaded || (isSignedIn && isLoading)) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center bg-background">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-r-transparent" />
+      </div>
+    );
+  }
+
+  if (isSignedIn && authMe?.onboardingRequired) {
+    return <Redirect to="/onboarding" />;
+  }
+
+  return <>{children}</>;
+}
+
 function MemberHome() {
   const { isLoaded, isSignedIn } = useAuth();
   if (!isLoaded) return null;
@@ -151,9 +180,21 @@ function Router() {
     <RoutedErrorBoundary>
       <Switch>
         <Route path="/" component={HomeRedirect} />
-        <Route path="/member" component={MemberHome} />
-        <Route path="/quiz" component={Quiz} />
+        <Route path="/member">
+          <RequireProfileComplete>
+            <MemberHome />
+          </RequireProfileComplete>
+        </Route>
+        <Route path="/quiz">
+          <RequireProfileComplete>
+            <Quiz />
+          </RequireProfileComplete>
+        </Route>
         <Route path="/admin/users" component={AdminUsers} />
+        <Route path="/admin/content" component={AdminContent} />
+        <Route path="/admin/schedule" component={AdminSchedule} />
+        <Route path="/onboarding" component={Onboarding} />
+        <Route path="/profile" component={Profile} />
         <Route path="/sign-in/*?" component={SignInPage} />
         <Route path="/sign-up/*?" component={SignUpPage} />
         <Route component={NotFound} />

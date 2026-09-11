@@ -2,3 +2,4 @@
 - [Generated client typechecking](generated-client-typechecking.md) — keep DOM iterable types enabled when regenerating fetch clients that normalize Headers entries.
 - [Result retry error semantics](result-retry-error-semantics.md) — model settled query errors separately from rejected retry promises in UI tests.
 - [UTC daily boundary contract](utc-daily-boundaries.md) — keep issued challenge dates as UTC date-only strings through persistence and generated clients.
+- [Content operations invariants](content-operations-invariants.md) — protect every mutation with CSRF and lock approval/current-version checks with schedule writes.

@@ -16,6 +16,8 @@ export interface AdminQuestion {
   version: number;
   prompt: string;
   explanation: string;
+  /** @minimum 1 */
+  points: number;
   choices: QuestionChoiceInput[];
   sourceMetadata: AdminQuestionSourceMetadataItem[];
 }

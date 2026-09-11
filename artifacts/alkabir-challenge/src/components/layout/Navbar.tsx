@@ -8,15 +8,23 @@ export function Navbar() {
   const [location] = useLocation();
   const { isLoaded, isSignedIn } = useAuth();
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isReviewer, setIsReviewer] = useState(false);
   useEffect(() => {
     if (!isLoaded || !isSignedIn) {
       setIsAdmin(false);
+      setIsReviewer(false);
       return;
     }
     void fetch("/api/auth/me", { credentials: "same-origin" })
       .then((response) => response.json())
-      .then((state: { user?: { roles: string[] } | null }) => setIsAdmin(state.user?.roles.includes("admin") ?? false))
-      .catch(() => setIsAdmin(false));
+      .then((state: { user?: { roles: string[] } | null }) => {
+        setIsAdmin(state.user?.roles.includes("admin") ?? false);
+        setIsReviewer(state.user?.roles.includes("reviewer") ?? false);
+      })
+      .catch(() => {
+        setIsAdmin(false);
+        setIsReviewer(false);
+      });
   }, [isLoaded, isSignedIn]);
 
   const handleScroll = (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
@@ -54,9 +62,11 @@ export function Navbar() {
           >
             Community
           </a>
-          <Link href="/" className="text-primary border-b-2 border-primary py-5">
+          <Link href={isLoaded && isSignedIn ? "/member" : "/"} className="text-primary border-b-2 border-primary py-5">
             Islamic Challenge
           </Link>
+          {(isReviewer || isAdmin) && <Link href="/admin/content" className="text-muted-foreground hover:text-primary transition-colors">Content</Link>}
+          {(isReviewer || isAdmin) && <Link href="/admin/schedule" className="text-muted-foreground hover:text-primary transition-colors">Schedule</Link>}
           {isAdmin && <Link href="/admin/users" className="text-muted-foreground hover:text-primary transition-colors">Access</Link>}
           <a 
             href="#about" 
@@ -66,6 +76,11 @@ export function Navbar() {
           >
             About
           </a>
+          {isLoaded && isSignedIn && (
+            <Link href="/profile" className="text-muted-foreground hover:text-primary transition-colors">
+              Profile
+            </Link>
+          )}
         </div>
 
         {/* Actions */}
