@@ -351,7 +351,21 @@ describe("quiz submission safety", () => {
     assert.equal(started.status, 201);
     const attemptId = started.body.attemptId as string;
 
-    const [answerResponse, completionResponse] = await Promise.all([
+    const initialAnswer = await request(
+      `/quiz/attempts/${attemptId}/answers`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          versionId: fixture.approvedVersionId,
+          choiceId: fixture.correctChoiceId,
+          idempotencyKey: `race-initial-answer-${randomUUID()}`,
+        }),
+      },
+      member,
+    );
+    assert.equal(initialAnswer.status, 200);
+
+    const [lateAnswerResponse, completionResponse] = await Promise.all([
       request(
         `/quiz/attempts/${attemptId}/answers`,
         {
@@ -371,18 +385,17 @@ describe("quiz submission safety", () => {
       ),
     ]);
 
-    assert.ok([200, 409].includes(answerResponse.status));
+    assert.ok([200, 409].includes(lateAnswerResponse.status));
     assert.equal(completionResponse.status, 200);
-    if (answerResponse.status === 200) {
-      assert.equal(completionResponse.body.score, 25);
-    } else {
-      assert.equal(completionResponse.body.score, 0);
+    assert.equal(completionResponse.body.score, 25);
+    if (lateAnswerResponse.status === 409) {
+      assert.equal(lateAnswerResponse.body.code, "ATTEMPT_COMPLETED");
     }
 
     const result = await request(`/quiz/results/${attemptId}`, {}, member);
     assert.equal(result.status, 200);
     assert.equal(result.body.status, "completed");
-    assert.equal(result.body.answers.length, answerResponse.status === 200 ? 1 : 0);
+    assert.equal(result.body.answers.length, 1);
   });
 
   it("persists one daily completion and reward across concurrent attempts for the same UTC date", async () => {
