@@ -1,9 +1,11 @@
 import { Link, useLocation } from "wouter";
 import { Search, Menu } from "lucide-react";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useAuth } from "@clerk/react";
+import { LogoutButton } from "@/components/auth/LogoutButton";
 
 export function Navbar() {
   const [location] = useLocation();
+  const { isLoaded, isSignedIn } = useAuth();
 
   const handleScroll = (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
     e.preventDefault();
@@ -59,32 +61,17 @@ export function Navbar() {
             <Search className="w-5 h-5" />
           </button>
           
-          <Dialog>
-            <DialogTrigger asChild>
-              <button 
-                className="hidden md:inline-flex h-9 px-4 items-center justify-center rounded-full border border-border bg-white text-sm font-medium hover:bg-muted transition-colors"
-                data-testid="button-signin-trigger"
-              >
-                Sign in
-              </button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md" data-testid="dialog-signin">
-              <DialogHeader>
-                <DialogTitle className="font-serif text-2xl">Welcome to AlKabirList</DialogTitle>
-                <DialogDescription>
-                  This is a non-functional preview. In the real application, you would sign in or create an account here to track your Islamic Challenge progress and connect with your community.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="flex flex-col gap-3 mt-4">
-                <button className="w-full h-10 bg-primary text-primary-foreground rounded-full font-medium" disabled>
-                  Continue with Email
-                </button>
-                <button className="w-full h-10 bg-white border border-border text-foreground rounded-full font-medium" disabled>
-                  Continue as Guest
-                </button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          {isLoaded && isSignedIn ? (
+            <LogoutButton />
+          ) : (
+            <Link
+              href="/sign-in"
+              className="hidden md:inline-flex h-9 px-4 items-center justify-center rounded-full border border-border bg-white text-sm font-medium hover:bg-muted transition-colors"
+              data-testid="button-signin-trigger"
+            >
+              Sign in
+            </Link>
+          )}
 
           <button className="md:hidden text-foreground p-2" aria-label="Menu">
             <Menu className="w-5 h-5" />

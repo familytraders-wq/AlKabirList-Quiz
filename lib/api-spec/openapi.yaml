@@ -15,6 +15,8 @@ tags:
   - name: admin
   - name: daily
     description: UTC daily challenge progress
+  - name: auth
+    description: Authentication and explicit guest-progress linking
 paths:
   /healthz:
     get:
@@ -297,6 +299,44 @@ paths:
                 $ref: "#/components/schemas/QuizAnalytics"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /auth/me:
+    get:
+      operationId: getAuthMe
+      tags: [auth]
+      summary: Get the current account and guest-progress state
+      responses:
+        "200":
+          description: Current optional-user state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMe"
+  /auth/link-guest-progress:
+    post:
+      operationId: linkGuestProgress
+      tags: [auth]
+      summary: Explicitly link the current anonymous progress to the signed-in user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkGuestProgressRequest"
+      responses:
+        "200":
+          description: Guest progress was linked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkGuestProgressResult"
+        "400":
+          description: Explicit confirmation is missing
+        "401":
+          description: Authentication is required
+        "403":
+          description: Origin or CSRF validation failed
+        "410":
+          description: Anonymous session expired
 components:
   parameters:
     AttemptId:
@@ -753,3 +793,51 @@ components:
         reward:
           $ref: "#/components/schemas/DailyReward"
       required: [id, attemptId, challengeDate, completedAt, streak, reward]
+    AuthMe:
+      type: object
+      properties:
+        authenticated:
+          type: boolean
+        user:
+          oneOf:
+            - $ref: "#/components/schemas/AuthUser"
+            - type: "null"
+        guestProgress:
+          $ref: "#/components/schemas/GuestProgress"
+      required: [authenticated, user, guestProgress]
+    AuthUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        roles:
+          type: array
+          items:
+            type: string
+            enum: [reviewer, admin]
+      required: [id, roles]
+    GuestProgress:
+      type: object
+      properties:
+        count:
+          type: integer
+          minimum: 0
+        hasUnlinkedProgress:
+          type: boolean
+      required: [count, hasUnlinkedProgress]
+    LinkGuestProgressRequest:
+      type: object
+      properties:
+        confirm:
+          type: boolean
+      required: [confirm]
+    LinkGuestProgressResult:
+      type: object
+      properties:
+        linked:
+          type: boolean
+        linkedAttemptCount:
+          type: integer
+          minimum: 0
+      required: [linked, linkedAttemptCount]

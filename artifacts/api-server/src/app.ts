@@ -1,11 +1,20 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import { randomUUID } from "node:crypto";
 import pinoHttp from "pino-http";
+import { clerkMiddleware } from "@clerk/express";
+import { publishableKeyFromHost } from "@clerk/shared/keys";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { authErrorHandler } from "./lib/auth";
 import type { AuthContext } from "./middlewares/auth";
+import { resolveAuthContext } from "./middlewares/auth";
+import {
+  CLERK_PROXY_PATH,
+  clerkProxyMiddleware,
+  getClerkProxyHost,
+} from "./middlewares/clerkProxyMiddleware";
+import { ensureSecurityCookies, exactOriginCors } from "./lib/security";
 
 type AppOptions = {
   resolveAuth?: (req: express.Request) => AuthContext | undefined;
@@ -13,13 +22,6 @@ type AppOptions = {
 
 export function createApp(options: AppOptions = {}): Express {
   const app: Express = express();
-  const sessionSecret =
-    process.env.SESSION_SECRET ??
-    (process.env.NODE_ENV === "production"
-      ? (() => {
-          throw new Error("SESSION_SECRET is required in production");
-        })()
-      : "local-development-session-secret");
 
   app.use(
     pinoHttp({
@@ -33,38 +35,46 @@ export function createApp(options: AppOptions = {}): Express {
           };
         },
         res(res) {
-          return {
-            statusCode: res.statusCode,
-          };
+          return { statusCode: res.statusCode };
         },
       },
     }),
   );
-  app.use(cors({ origin: true, credentials: true }));
-  app.use(cookieParser(sessionSecret));
-  app.use(express.json());
+  app.use(CLERK_PROXY_PATH, clerkProxyMiddleware());
+  app.use(
+    cors({
+      credentials: true,
+      origin: (origin, callback) => exactOriginCors(origin, callback),
+      methods: ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"],
+    }),
+  );
+  app.use(cookieParser());
+  app.use(express.json({ limit: "100kb" }));
   app.use(express.urlencoded({ extended: true }));
-  app.use((req, res, next) => {
-    const existing = req.signedCookies?.["alkabir_guest_session"];
-    const sessionId = existing || randomUUID();
-    res.locals.anonymousSessionId = sessionId;
-    if (!existing) {
-      res.cookie("alkabir_guest_session", sessionId, {
-        signed: true,
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 1000 * 60 * 60 * 24 * 180,
-      });
-    }
-    if (options.resolveAuth) {
-      res.locals.auth = options.resolveAuth(req);
-    }
+  app.use((_req, res, next) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Referrer-Policy", "same-origin");
+    res.setHeader("X-Frame-Options", "DENY");
     next();
   });
+  app.use(
+    clerkMiddleware((req) => ({
+      publishableKey: publishableKeyFromHost(
+        getClerkProxyHost(req) ?? "",
+        process.env.CLERK_PUBLISHABLE_KEY,
+      ),
+    })),
+  );
 
-  app.use("/api", router);
+  const resolveRequestAuth = options.resolveAuth
+    ? (req: express.Request, res: express.Response, next: express.NextFunction) => {
+        res.locals.auth = options.resolveAuth?.(req);
+        next();
+      }
+    : resolveAuthContext;
 
+  app.use("/api", ensureSecurityCookies, resolveRequestAuth, router);
+  app.use(authErrorHandler);
   return app;
 }
 

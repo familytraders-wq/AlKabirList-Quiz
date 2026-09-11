@@ -24,12 +24,15 @@ import type {
   AdminQuestionList,
   AnswerResult,
   AttemptState,
+  AuthMe,
   BadRequestResponse,
   ConflictResponse,
   ForbiddenResponse,
   GenerationRun,
   GenerationRunRequest,
   HealthStatus,
+  LinkGuestProgressRequest,
+  LinkGuestProgressResult,
   ListAdminQuestionsParams,
   NotFoundResponse,
   QuestionWriteRequest,
@@ -1299,3 +1302,167 @@ export function useGetQuizAnalytics<TData = Awaited<ReturnType<typeof getQuizAna
 
 
 
+export const getGetAuthMeUrl = () => {
+
+
+
+
+  return `/api/auth/me`
+}
+
+/**
+ * @summary Get the current account and guest-progress state
+ */
+export const getAuthMe = async ( options?: Parameters<typeof customFetch>[1]): Promise<AuthMe> => {
+
+  return customFetch<AuthMe>(getGetAuthMeUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAuthMeQueryKey = () => {
+    return [
+    `/api/auth/me`
+    ] as const;
+    }
+
+
+export const getGetAuthMeQueryOptions = <TData = Awaited<ReturnType<typeof getAuthMe>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAuthMe>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAuthMeQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAuthMe>>> = ({ signal }) => getAuthMe({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAuthMe>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAuthMeQueryResult = NonNullable<Awaited<ReturnType<typeof getAuthMe>>>
+export type GetAuthMeQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the current account and guest-progress state
+ */
+
+export function useGetAuthMe<TData = Awaited<ReturnType<typeof getAuthMe>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAuthMe>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAuthMeQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getLinkGuestProgressUrl = () => {
+
+
+
+
+  return `/api/auth/link-guest-progress`
+}
+
+/**
+ * @summary Explicitly link the current anonymous progress to the signed-in user
+ */
+export const linkGuestProgress = async (linkGuestProgressRequest: LinkGuestProgressRequest, options?: Parameters<typeof customFetch>[1]): Promise<LinkGuestProgressResult> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<LinkGuestProgressResult>(getLinkGuestProgressUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(linkGuestProgressRequest)
+  }
+);}
+
+
+
+
+
+export const getLinkGuestProgressMutationKey = () => ['linkGuestProgress'] as const;
+
+export const getLinkGuestProgressMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linkGuestProgress>>, TError,LinkGuestProgressMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof linkGuestProgress>>, TError,LinkGuestProgressMutationVariables, TContext> => {
+
+const mutationKey = getLinkGuestProgressMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof linkGuestProgress>>, LinkGuestProgressMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  linkGuestProgress(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LinkGuestProgressMutationResult = NonNullable<Awaited<ReturnType<typeof linkGuestProgress>>>
+    export type LinkGuestProgressMutationBody = BodyType<LinkGuestProgressRequest>
+    export type LinkGuestProgressMutationError = ErrorType<void>
+    export type LinkGuestProgressMutationVariables = {data: BodyType<LinkGuestProgressRequest>}
+
+    /**
+ * @summary Explicitly link the current anonymous progress to the signed-in user
+ */
+export const useLinkGuestProgress = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linkGuestProgress>>, TError,LinkGuestProgressMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof linkGuestProgress>>,
+        TError,
+        LinkGuestProgressMutationVariables,
+        TContext
+      > => {
+      return useMutation(getLinkGuestProgressMutationOptions(options));
+    }

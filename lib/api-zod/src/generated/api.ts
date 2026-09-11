@@ -474,3 +474,38 @@ export const GetQuizAnalyticsResponse = zod.object({
 })
 
 
+/**
+ * @summary Get the current account and guest-progress state
+ */
+export const getAuthMeResponseGuestProgressCountMin = 0;
+
+
+
+export const GetAuthMeResponse = zod.object({
+  "authenticated": zod.boolean(),
+  "user": zod.union([zod.object({
+  "id": zod.string().uuid(),
+  "roles": zod.array(zod.enum(['reviewer', 'admin']))
+}),zod.null()]),
+  "guestProgress": zod.object({
+  "count": zod.number().int().min(getAuthMeResponseGuestProgressCountMin),
+  "hasUnlinkedProgress": zod.boolean()
+})
+})
+
+
+/**
+ * @summary Explicitly link the current anonymous progress to the signed-in user
+ */
+export const LinkGuestProgressBody = zod.object({
+  "confirm": zod.boolean()
+})
+
+export const linkGuestProgressResponseLinkedAttemptCountMin = 0;
+
+
+
+export const LinkGuestProgressResponse = zod.object({
+  "linked": zod.boolean(),
+  "linkedAttemptCount": zod.number().int().min(linkGuestProgressResponseLinkedAttemptCountMin)
+})

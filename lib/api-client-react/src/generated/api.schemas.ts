@@ -273,6 +273,41 @@ export interface DailyCompletion {
   reward: DailyReward;
 }
 
+export type AuthUserRolesItem = typeof AuthUserRolesItem[keyof typeof AuthUserRolesItem];
+
+
+export const AuthUserRolesItem = {
+  reviewer: 'reviewer',
+  admin: 'admin',
+} as const;
+
+export interface AuthUser {
+  id: string;
+  roles: AuthUserRolesItem[];
+}
+
+export interface GuestProgress {
+  /** @minimum 0 */
+  count: number;
+  hasUnlinkedProgress: boolean;
+}
+
+export interface AuthMe {
+  authenticated: boolean;
+  user: AuthUser | null;
+  guestProgress: GuestProgress;
+}
+
+export interface LinkGuestProgressRequest {
+  confirm: boolean;
+}
+
+export interface LinkGuestProgressResult {
+  linked: boolean;
+  /** @minimum 0 */
+  linkedAttemptCount: number;
+}
+
 /**
  * Invalid request
  */
@@ -312,4 +347,3 @@ limit?: number;
  */
 offset?: number;
 };
-

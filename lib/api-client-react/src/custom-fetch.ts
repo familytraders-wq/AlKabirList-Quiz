@@ -10,6 +10,9 @@ export type AuthTokenGetter = () => Promise<string | null> | string | null;
 
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
+const CSRF_COOKIE = "alkabir_csrf";
+const CSRF_HEADER = "x-csrf-token";
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 // ---------------------------------------------------------------------------
 // Module-level configuration
@@ -89,6 +92,26 @@ function mergeHeaders(...sources: Array<HeadersInit | undefined>): Headers {
   }
 
   return headers;
+}
+
+function addBrowserSecurityHeaders(headers: Headers, method: string): void {
+  if (
+    typeof document === "undefined" ||
+    !UNSAFE_METHODS.has(method.toUpperCase())
+  ) {
+    return;
+  }
+
+  const token = document.cookie
+    .split("; ")
+    .find((part) => part.startsWith(`${CSRF_COOKIE}=`))
+    ?.split("=")
+    .slice(1)
+    .join("=");
+
+  if (token) {
+    headers.set(CSRF_HEADER, decodeURIComponent(token));
+  }
 }
 
 function getMediaType(headers: Headers): string | null {
@@ -348,6 +371,7 @@ export async function customFetch<T = unknown>(
   if (responseType === "json" && !headers.has("accept")) {
     headers.set("accept", DEFAULT_JSON_ACCEPT);
   }
+  addBrowserSecurityHeaders(headers, method);
 
   // Attach bearer token when an auth getter is configured and no
   // Authorization header has been explicitly provided.
@@ -360,7 +384,12 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  const response = await fetch(input, {
+    ...init,
+    method,
+    headers,
+    credentials: init.credentials ?? "same-origin",
+  });
 
   if (!response.ok) {
     const errorData = await parseErrorBody(response, method);

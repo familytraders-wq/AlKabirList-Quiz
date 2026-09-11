@@ -1,7 +1,9 @@
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -10,6 +12,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -33,12 +36,38 @@ export const reviewDecision = pgEnum("review_decision", [
 ]);
 export const appRole = pgEnum("app_role", ["member", "reviewer", "admin"]);
 
-export const users = pgTable("users", {
-  id: text("id").primaryKey(),
-  role: appRole("role").notNull().default("member"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const userRoleEnum = pgEnum("user_role", ["reviewer", "admin"]);
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    clerkUserId: text("clerk_user_id").unique(),
+    role: appRole("role").notNull().default("member"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("users_clerk_user_id_idx").on(table.clerkUserId)],
+);
 
+export const userRoles = pgTable(
+  "user_roles",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    role: userRoleEnum("role").notNull(),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).defaultNow().notNull(),
+    grantedByUserId: uuid("granted_by_user_id"),
+  },
+  (table) => [
+    unique("user_roles_user_role_unique").on(table.userId, table.role),
+    index("user_roles_user_id_idx").on(table.userId),
+    foreignKey({
+      columns: [table.grantedByUserId],
+      foreignColumns: [users.id],
+      name: "user_roles_granted_by_user_id_fk",
+    }),
+  ],
+);
 export const taxonomies = pgTable(
   "taxonomies",
   {
@@ -64,7 +93,7 @@ export const questions = pgTable(
     difficultyId: uuid("difficulty_id").references(() => taxonomies.id),
     status: questionStatus("status").notNull().default("draft"),
     currentVersionId: uuid("current_version_id"),
-    createdBy: text("created_by").references(() => users.id),
+    createdBy: text("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -106,7 +135,7 @@ export const questionVersions = pgTable(
       promptVersion?: string;
       runId?: string;
     }>(),
-    createdBy: text("created_by").references(() => users.id),
+    createdBy: text("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -187,8 +216,11 @@ export const quizAttempts = pgTable(
     quizId: uuid("quiz_id")
       .notNull()
       .references(() => quizzes.id),
-    userId: text("user_id").references(() => users.id),
-    anonymousSessionId: text("anonymous_session_id"),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    anonymousSessionId: uuid("anonymous_session_id").references(
+      () => anonymousSessions.id,
+      { onDelete: "set null" },
+    ),
     status: text("status").notNull().default("in_progress"),
     idempotencyKey: text("idempotency_key"),
     score: integer("score"),
@@ -207,10 +239,34 @@ export const quizAttempts = pgTable(
       table.userId,
       table.anonymousSessionId,
     ),
-    sql`CHECK ((${table.userId} IS NOT NULL AND ${table.anonymousSessionId} IS NULL) OR (${table.userId} IS NULL AND ${table.anonymousSessionId} IS NOT NULL))`,
+    check(
+      "quiz_attempts_exactly_one_owner",
+      sql`(("user_id" IS NOT NULL)::integer + ("anonymous_session_id" IS NOT NULL)::integer) = 1`,
+    ),
+    index("quiz_attempts_incomplete_owner_idx").on(
+      table.status,
+      table.userId,
+      table.anonymousSessionId,
+    ),
   ],
 );
 
+export const guestProgressLinks = pgTable(
+  "guest_progress_links",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    anonymousSessionId: uuid("anonymous_session_id")
+      .notNull()
+      .references(() => anonymousSessions.id, { onDelete: "restrict" }),
+    linkedAttemptCount: integer("linked_attempt_count").notNull(),
+    linkedAt: timestamp("linked_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("guest_progress_links_user_id_idx").on(table.userId),
+    index("guest_progress_links_anonymous_session_id_idx").on(table.anonymousSessionId),
+  ],
+);
 export const attemptAnswers = pgTable(
   "attempt_answers",
   {
@@ -248,7 +304,7 @@ export const reviewEvents = pgTable(
       .notNull()
       .references(() => questions.id, { onDelete: "cascade" }),
     versionId: uuid("version_id").references(() => questionVersions.id),
-    reviewerId: text("reviewer_id")
+    reviewerId: uuid("reviewer_id")
       .notNull()
       .references(() => users.id),
     fromStatus: questionStatus("from_status"),
@@ -262,7 +318,7 @@ export const reviewEvents = pgTable(
 
 export const generationRuns = pgTable("generation_runs", {
   id: uuid("id").defaultRandom().primaryKey(),
-  requestedBy: text("requested_by")
+  requestedBy: uuid("requested_by")
     .notNull()
     .references(() => users.id),
   provider: text("provider").notNull(),
@@ -277,7 +333,7 @@ export const rewardLedger = pgTable(
   "reward_ledger",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    userId: text("user_id")
+    userId: uuid("user_id")
       .notNull()
       .references(() => users.id),
     attemptId: uuid("attempt_id")
@@ -403,3 +459,24 @@ export type QuestionChoice = typeof questionChoices.$inferSelect;
 export type Quiz = typeof quizzes.$inferSelect;
 export type QuizAttempt = typeof quizAttempts.$inferSelect;
 export type AttemptAnswer = typeof attemptAnswers.$inferSelect;
+
+export type User = typeof users.$inferSelect;
+
+export type UserRole = typeof userRoles.$inferSelect;
+
+export type AnonymousSession = typeof anonymousSessions.$inferSelect;
+
+export const anonymousSessions = pgTable(
+  "anonymous_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tokenHash: text("token_hash").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("anonymous_sessions_expires_at_idx").on(table.expiresAt),
+    index("anonymous_sessions_active_idx").on(table.revokedAt, table.expiresAt),
+  ],
+);

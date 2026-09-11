@@ -1,9 +1,33 @@
 import type { NextFunction, Request, Response } from "express";
+import { resolveOptionalUser } from "../lib/auth";
 
 export type AuthContext = {
   userId: string;
   role: "member" | "reviewer" | "admin";
 };
+
+export async function resolveAuthContext(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  try {
+    const user = await resolveOptionalUser(req);
+    if (user) {
+      res.locals.auth = {
+        userId: user.id,
+        role: user.roles.includes("admin")
+          ? "admin"
+          : user.roles.includes("reviewer")
+            ? "reviewer"
+            : "member",
+      } satisfies AuthContext;
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
 
 function authFor(res: Response): AuthContext | undefined {
   return res.locals.auth as AuthContext | undefined;
