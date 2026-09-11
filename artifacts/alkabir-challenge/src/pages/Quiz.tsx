@@ -163,6 +163,7 @@ export function Quiz() {
 
   useEffect(() => {
     if (!attemptState) return;
+    if (status === "feedback") return;
     const firstUnanswered = attemptState.questions.findIndex(
       (question) => !answeredVersionIds.includes(question.versionId),
     );
@@ -173,7 +174,7 @@ export function Quiz() {
       setCurrentIndex(firstUnanswered);
       setStatus("answering");
     }
-  }, [attemptState?.attemptId, attemptState?.questions, answeredVersionIds]);
+  }, [attemptState?.attemptId, attemptState?.questions, answeredVersionIds, status]);
 
   useEffect(() => {
     if (completeAttempt.data) {
