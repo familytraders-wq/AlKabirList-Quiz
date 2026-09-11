@@ -6,10 +6,12 @@
  * OpenAPI spec version: 0.2.0
  */
 import type { AnswerResult } from './answerResult';
+import type { CanonicalDailyDate } from './canonicalDailyDate';
 import type { QuizResultStatus } from './quizResultStatus';
 
 export interface QuizResult {
   attemptId: string;
+  challengeDate: CanonicalDailyDate;
   status: QuizResultStatus;
   score: number;
   maxScore: number;

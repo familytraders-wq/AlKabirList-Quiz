@@ -81,9 +81,16 @@ export const AttemptStateStatus = {
   completed: 'completed',
 } as const;
 
+/**
+ * Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.
+ * @pattern ^\d{4}-\d{2}-\d{2}$
+ */
+export type CanonicalDailyDate = string;
+
 export interface AttemptState {
   attemptId: string;
   quizId: string;
+  challengeDate: CanonicalDailyDate;
   status: AttemptStateStatus;
   questions: PublicQuestion[];
   answeredQuestionIds: string[];
@@ -125,6 +132,7 @@ export const QuizResultStatus = {
 
 export interface QuizResult {
   attemptId: string;
+  challengeDate: CanonicalDailyDate;
   status: QuizResultStatus;
   score: number;
   maxScore: number;
@@ -244,12 +252,6 @@ export interface QuizAnalytics {
   attemptCounts: QuizAnalyticsAttemptCounts;
 }
 
-/**
- * Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.
- * @pattern ^\d{4}-\d{2}-\d{2}$
- */
-export type CanonicalDailyDate = string;
-
 export interface DailyAttempt {
   id: string;
   challengeId: string;
@@ -282,6 +284,11 @@ export const AuthUserRolesItem = {
 } as const;
 
 export interface AuthUser {
+  /**
+     * @minLength 1
+     * @maxLength 256
+     * @pattern ^[^\s]+$
+     */
   id: string;
   roles: AuthUserRolesItem[];
 }
@@ -296,6 +303,33 @@ export interface AuthMe {
   authenticated: boolean;
   user: AuthUser | null;
   guestProgress: GuestProgress;
+}
+
+export type ManagedRole = typeof ManagedRole[keyof typeof ManagedRole];
+
+
+export const ManagedRole = {
+  reviewer: 'reviewer',
+  admin: 'admin',
+} as const;
+
+export interface RoleChangeRequest {
+  role: ManagedRole;
+}
+
+export interface AdminUser {
+  /**
+     * @minLength 1
+     * @maxLength 256
+     * @pattern ^[^\s]+$
+     */
+  id: string;
+  createdAt: string;
+  roles: ManagedRole[];
+}
+
+export interface AdminUserList {
+  items: AdminUser[];
 }
 
 export interface LinkGuestProgressRequest {

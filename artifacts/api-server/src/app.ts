@@ -6,7 +6,7 @@ import { clerkMiddleware } from "@clerk/express";
 import { publishableKeyFromHost } from "@clerk/shared/keys";
 import router from "./routes";
 import { logger } from "./lib/logger";
-import { authErrorHandler } from "./lib/auth";
+import { authErrorHandler, type AuthenticatedUser } from "./lib/auth";
 import type { AuthContext } from "./middlewares/auth";
 import { resolveAuthContext } from "./middlewares/auth";
 import {
@@ -57,18 +57,29 @@ export function createApp(options: AppOptions = {}): Express {
     res.setHeader("X-Frame-Options", "DENY");
     next();
   });
-  app.use(
-    clerkMiddleware((req) => ({
-      publishableKey: publishableKeyFromHost(
-        getClerkProxyHost(req) ?? "",
-        process.env.CLERK_PUBLISHABLE_KEY,
-      ),
-    })),
-  );
+  if (!options.resolveAuth) {
+    app.use(
+      clerkMiddleware((req) => ({
+        publishableKey: publishableKeyFromHost(
+          getClerkProxyHost(req) ?? "",
+          process.env.CLERK_PUBLISHABLE_KEY,
+        ),
+      })),
+    );
+  }
 
   const resolveRequestAuth = options.resolveAuth
     ? (req: express.Request, res: express.Response, next: express.NextFunction) => {
+        res.locals.authOverride = true;
         res.locals.auth = options.resolveAuth?.(req);
+        const context = res.locals.auth as AuthContext | undefined;
+        if (context) {
+          (req as express.Request & { authUser?: AuthenticatedUser }).authUser = {
+            id: context.userId,
+            clerkUserId: context.userId,
+            roles: context.role === "member" ? [] : [context.role],
+          };
+        }
         next();
       }
     : resolveAuthContext;

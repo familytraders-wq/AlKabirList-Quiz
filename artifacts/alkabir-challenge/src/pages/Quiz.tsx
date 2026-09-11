@@ -23,10 +23,9 @@ import {
   XCircle,
 } from "lucide-react";
 import {
-  formatChallengeDateUTC,
-  formatNextChallengeReset,
-  getChallengeDate,
-} from "@/data/quiz";
+  resolveChallengeDateLabel,
+  useUtcDayBoundary,
+} from "@/hooks/use-utc-day-boundary";
 
 const ATTEMPT_STORAGE_KEY = "alkabir.quiz.attemptId";
 const QUIZ_ID_QUERY_KEY = "quizId";
@@ -118,8 +117,15 @@ export function Quiz() {
   const [isResultRetrying, setIsResultRetrying] = useState(false);
   const startRequested = useRef(false);
   const answerKeys = useRef(new Map<string, string>());
-  const challengeDate = formatChallengeDateUTC(getChallengeDate());
-  const nextReset = formatNextChallengeReset();
+  const {
+    formattedChallengeDate: liveChallengeDate,
+    nextReset,
+  } = useUtcDayBoundary();
+  const attemptChallengeDate = attemptState?.challengeDate;
+  const challengeDate = resolveChallengeDateLabel(
+    attemptChallengeDate,
+    liveChallengeDate,
+  );
   const startAttempt = useStartQuizAttempt();
   const resumeAttempt = useGetQuizAttempt(attemptId ?? "", {
     query: {

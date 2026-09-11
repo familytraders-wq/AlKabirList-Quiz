@@ -22,6 +22,8 @@ import type {
 import type {
   AdminQuestion,
   AdminQuestionList,
+  AdminUser,
+  AdminUserList,
   AnswerResult,
   AttemptState,
   AuthMe,
@@ -42,6 +44,7 @@ import type {
   QuizProgress,
   QuizResult,
   ReviewRequest,
+  RoleChangeRequest,
   StartAttemptRequest,
   SubmitAnswerRequest,
   UnauthorizedResponse
@@ -349,7 +352,7 @@ export const getGetQuizAttemptQueryKey = (attemptId: string,) => {
     }
 
 
-export const getGetQuizAttemptQueryOptions = <TData = Awaited<ReturnType<typeof getQuizAttempt>>, TError = ErrorType<ForbiddenResponse | NotFoundResponse>>(attemptId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getQuizAttempt>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetQuizAttemptQueryOptions = <TData = Awaited<ReturnType<typeof getQuizAttempt>>, TError = ErrorType<UnauthorizedResponse | ForbiddenResponse | NotFoundResponse>>(attemptId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getQuizAttempt>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -368,14 +371,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetQuizAttemptQueryResult = NonNullable<Awaited<ReturnType<typeof getQuizAttempt>>>
-export type GetQuizAttemptQueryError = ErrorType<ForbiddenResponse | NotFoundResponse>
+export type GetQuizAttemptQueryError = ErrorType<UnauthorizedResponse | ForbiddenResponse | NotFoundResponse>
 
 
 /**
  * @summary Resume an owned quiz attempt
  */
 
-export function useGetQuizAttempt<TData = Awaited<ReturnType<typeof getQuizAttempt>>, TError = ErrorType<ForbiddenResponse | NotFoundResponse>>(
+export function useGetQuizAttempt<TData = Awaited<ReturnType<typeof getQuizAttempt>>, TError = ErrorType<UnauthorizedResponse | ForbiddenResponse | NotFoundResponse>>(
  attemptId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getQuizAttempt>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
@@ -1301,6 +1304,261 @@ export function useGetQuizAnalytics<TData = Awaited<ReturnType<typeof getQuizAna
 
 
 
+
+export const getListAdminUsersUrl = () => {
+
+
+
+
+  return `/api/admin/users`
+}
+
+/**
+ * @summary List internal users and assigned access roles
+ */
+export const listAdminUsers = async ( options?: Parameters<typeof customFetch>[1]): Promise<AdminUserList> => {
+
+  return customFetch<AdminUserList>(getListAdminUsersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAdminUsersQueryKey = () => {
+    return [
+    `/api/admin/users`
+    ] as const;
+    }
+
+
+export const getListAdminUsersQueryOptions = <TData = Awaited<ReturnType<typeof listAdminUsers>>, TError = ErrorType<ForbiddenResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdminUsers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAdminUsersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdminUsers>>> = ({ signal }) => listAdminUsers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdminUsers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAdminUsersQueryResult = NonNullable<Awaited<ReturnType<typeof listAdminUsers>>>
+export type ListAdminUsersQueryError = ErrorType<ForbiddenResponse>
+
+
+/**
+ * @summary List internal users and assigned access roles
+ */
+
+export function useListAdminUsers<TData = Awaited<ReturnType<typeof listAdminUsers>>, TError = ErrorType<ForbiddenResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdminUsers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAdminUsersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGrantAdminUserRoleUrl = (userId: string,) => {
+
+
+
+
+  return `/api/admin/users/${userId}/roles`
+}
+
+/**
+ * @summary Grant a reviewer or administrator role
+ */
+export const grantAdminUserRole = async (userId: string,
+    roleChangeRequest: RoleChangeRequest, options?: Parameters<typeof customFetch>[1]): Promise<AdminUser> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdminUser>(getGrantAdminUserRoleUrl(userId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(roleChangeRequest)
+  }
+);}
+
+
+
+
+
+export const getGrantAdminUserRoleMutationKey = () => ['grantAdminUserRole'] as const;
+
+export const getGrantAdminUserRoleMutationOptions = <TError = ErrorType<BadRequestResponse | UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof grantAdminUserRole>>, TError,GrantAdminUserRoleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof grantAdminUserRole>>, TError,GrantAdminUserRoleMutationVariables, TContext> => {
+
+const mutationKey = getGrantAdminUserRoleMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof grantAdminUserRole>>, GrantAdminUserRoleMutationVariables> = (props) => {
+          const {userId,data} = props ?? {};
+
+          return  grantAdminUserRole(userId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GrantAdminUserRoleMutationResult = NonNullable<Awaited<ReturnType<typeof grantAdminUserRole>>>
+    export type GrantAdminUserRoleMutationBody = BodyType<RoleChangeRequest>
+    export type GrantAdminUserRoleMutationError = ErrorType<BadRequestResponse | UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | ConflictResponse>
+    export type GrantAdminUserRoleMutationVariables = {userId: string;data: BodyType<RoleChangeRequest>}
+
+    /**
+ * @summary Grant a reviewer or administrator role
+ */
+export const useGrantAdminUserRole = <TError = ErrorType<BadRequestResponse | UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof grantAdminUserRole>>, TError,GrantAdminUserRoleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof grantAdminUserRole>>,
+        TError,
+        GrantAdminUserRoleMutationVariables,
+        TContext
+      > => {
+      return useMutation(getGrantAdminUserRoleMutationOptions(options));
+    }
+
+export const getRevokeAdminUserRoleUrl = (userId: string,) => {
+
+
+
+
+  return `/api/admin/users/${userId}/roles`
+}
+
+/**
+ * @summary Revoke a reviewer or administrator role
+ */
+export const revokeAdminUserRole = async (userId: string,
+    roleChangeRequest: RoleChangeRequest, options?: Parameters<typeof customFetch>[1]): Promise<AdminUser> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdminUser>(getRevokeAdminUserRoleUrl(userId),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(roleChangeRequest)
+  }
+);}
+
+
+
+
+
+export const getRevokeAdminUserRoleMutationKey = () => ['revokeAdminUserRole'] as const;
+
+export const getRevokeAdminUserRoleMutationOptions = <TError = ErrorType<BadRequestResponse | UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeAdminUserRole>>, TError,RevokeAdminUserRoleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof revokeAdminUserRole>>, TError,RevokeAdminUserRoleMutationVariables, TContext> => {
+
+const mutationKey = getRevokeAdminUserRoleMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof revokeAdminUserRole>>, RevokeAdminUserRoleMutationVariables> = (props) => {
+          const {userId,data} = props ?? {};
+
+          return  revokeAdminUserRole(userId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RevokeAdminUserRoleMutationResult = NonNullable<Awaited<ReturnType<typeof revokeAdminUserRole>>>
+    export type RevokeAdminUserRoleMutationBody = BodyType<RoleChangeRequest>
+    export type RevokeAdminUserRoleMutationError = ErrorType<BadRequestResponse | UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | ConflictResponse>
+    export type RevokeAdminUserRoleMutationVariables = {userId: string;data: BodyType<RoleChangeRequest>}
+
+    /**
+ * @summary Revoke a reviewer or administrator role
+ */
+export const useRevokeAdminUserRole = <TError = ErrorType<BadRequestResponse | UnauthorizedResponse | ForbiddenResponse | NotFoundResponse | ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof revokeAdminUserRole>>, TError,RevokeAdminUserRoleMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof revokeAdminUserRole>>,
+        TError,
+        RevokeAdminUserRoleMutationVariables,
+        TContext
+      > => {
+      return useMutation(getRevokeAdminUserRoleMutationOptions(options));
+    }
 
 export const getGetAuthMeUrl = () => {
 

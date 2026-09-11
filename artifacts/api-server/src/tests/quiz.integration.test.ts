@@ -7,6 +7,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import {
   attemptAnswers,
+  anonymousSessions,
   dailyCompletions,
   dailyRewards,
   questionChoices,
@@ -16,6 +17,7 @@ import {
   quizQuestions,
   quizzes,
   rewardLedger,
+  guestProgressLinks,
   reviewEvents,
   users,
 } from "@workspace/db/schema";
@@ -29,18 +31,43 @@ type Identity = {
 type ResponseData = {
   status: number;
   body: any;
+  headers: Headers;
 };
 
+class CookieJar {
+  private cookies = new Map<string, string>();
+  setCookieHeader(value: string) {
+    for (const cookie of value.split(/,(?=[^;,]+=)/)) {
+      const [pair] = cookie.split(";");
+      const separator = pair.indexOf("=");
+      if (separator > 0) this.cookies.set(pair.slice(0, separator), pair.slice(separator + 1));
+    }
+  }
+  header() {
+    return [...this.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
+  }
+  get(name: string) {
+    return this.cookies.get(name);
+  }
+  clone() {
+    const copy = new CookieJar();
+    for (const [name, value] of this.cookies) {
+      copy.cookies.set(name, value);
+    }
+    return copy;
+  }
+}
+
 const member: Identity = {
-  userId: `task13-member-${randomUUID()}`,
+  userId: randomUUID(),
   role: "member",
 };
 const otherMember: Identity = {
-  userId: `task13-other-${randomUUID()}`,
+  userId: randomUUID(),
   role: "member",
 };
 const reviewer: Identity = {
-  userId: `task13-reviewer-${randomUUID()}`,
+  userId: randomUUID(),
   role: "reviewer",
 };
 const identities = new Map<string, Identity>(
@@ -94,15 +121,21 @@ async function request(
   path: string,
   options: RequestInit = {},
   identity?: Identity,
+  jar?: CookieJar,
 ): Promise<ResponseData> {
   const headers = new Headers(options.headers);
   if (options.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
   if (identity) headers.set("x-test-user-id", identity.userId);
+  if (jar) headers.set("cookie", jar.header());
   const response = await fetch(url(path), { ...options, headers });
+  const responseWithCookies = response.headers as Headers & { getSetCookie?: () => string[] };
+  const setCookies = responseWithCookies.getSetCookie?.() ??
+    (response.headers.get("set-cookie") ? [response.headers.get("set-cookie")!] : []);
+  for (const value of setCookies) jar?.setCookieHeader(value);
   const text = await response.text();
-  return { status: response.status, body: text ? JSON.parse(text) : undefined };
+  return { status: response.status, body: text ? JSON.parse(text) : undefined, headers: response.headers };
 }
 
 async function insertQuestion(input: {
@@ -250,6 +283,9 @@ after(async () => {
     await db.delete(quizAttempts).where(inArray(quizAttempts.id, attemptIds));
   }
   await db.delete(reviewEvents).where(eq(reviewEvents.questionId, fixture.reviewQuestionId));
+  await db.delete(guestProgressLinks).where(
+    inArray(guestProgressLinks.userId, [member.userId, otherMember.userId]),
+  );
   await db.delete(quizQuestions).where(inArray(quizQuestions.quizId, [
     fixture.approvedQuizId,
     fixture.dailyQuizId,
@@ -413,6 +449,7 @@ describe("quiz submission safety", () => {
           member,
         );
         assert.equal(started.status, 201);
+        assert.equal(started.body.challengeDate, "2026-09-11");
         const attemptId = started.body.attemptId as string;
         const answered = await request(
           `/quiz/attempts/${attemptId}/answers`,
@@ -675,5 +712,106 @@ describe("quiz submission safety", () => {
     assert.equal(question?.status, "rejected");
     assert.equal(events.length, 1);
     assert.equal(events[0]?.toStatus, "rejected");
+  });
+
+  it("links guest progress only after CSRF and explicit confirmation, then rotates access", async () => {
+    const jar = new CookieJar();
+    const started = await request(
+      "/quiz/attempts",
+      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-${randomUUID()}` }) },
+      undefined,
+      jar,
+    );
+    assert.equal(started.status, 201);
+    assert.ok(jar.get("__Host-alkabir_anon"));
+    assert.ok(jar.get("alkabir_csrf"));
+    const attemptId = started.body.attemptId as string;
+    const oldJar = jar.clone();
+
+    const noCsrf = await request(
+      "/auth/link-guest-progress",
+      { method: "POST", headers: { Origin: "http://localhost:5173" }, body: JSON.stringify({ confirm: true }) },
+      member,
+      new CookieJar(),
+    );
+    assert.equal(noCsrf.status, 403);
+
+    const rejected = await request(
+      "/auth/link-guest-progress",
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost:5173", "x-csrf-token": jar.get("alkabir_csrf")! },
+        body: JSON.stringify({ confirm: false }),
+      },
+      member,
+      jar,
+    );
+    assert.equal(rejected.status, 400, JSON.stringify(rejected.body));
+    assert.match(rejected.body.error, /Explicit confirmation/);
+
+    const previousToken = jar.get("__Host-alkabir_anon");
+    const linked = await request(
+      "/auth/link-guest-progress",
+      {
+        method: "POST",
+        headers: { Origin: "http://localhost:5173", "x-csrf-token": jar.get("alkabir_csrf")! },
+        body: JSON.stringify({ confirm: true }),
+      },
+      member,
+      jar,
+    );
+    assert.equal(linked.status, 200);
+    assert.equal(linked.body.linked, true);
+    assert.equal(linked.body.linkedAttemptCount, 1);
+    assert.notEqual(jar.get("__Host-alkabir_anon"), previousToken);
+
+    const authenticatedProgress = await request("/auth/me", {}, member, jar);
+    assert.equal(authenticatedProgress.body.authenticated, true);
+    assert.equal(authenticatedProgress.body.guestProgress.count, 0);
+    assert.equal((await request(`/quiz/attempts/${attemptId}`, {}, member, jar)).status, 200);
+
+    // The pre-link anonymous owner no longer has access, even though the
+    // authenticated member retained the transferred attempt.
+    const anonymousAccess = await request(
+      `/quiz/attempts/${attemptId}`,
+      {},
+      undefined,
+      oldJar,
+    );
+    assert.equal(anonymousAccess.status, 404);
+    const links = await db.select().from(guestProgressLinks).where(eq(guestProgressLinks.userId, member.userId));
+    assert.ok(links.some((link) => link.linkedAttemptCount === 1));
+  });
+
+  it("serializes concurrent links and leaves exactly one transfer", async () => {
+    const jar = new CookieJar();
+    await request("/auth/me", {}, undefined, jar);
+    const started = await request(
+      "/quiz/attempts",
+      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
+      undefined,
+      jar,
+    );
+    assert.equal(started.status, 201);
+    const csrf = jar.get("alkabir_csrf")!;
+    const [first, second] = await Promise.all(
+      [member, otherMember].map((identity) =>
+        request(
+          "/auth/link-guest-progress",
+          {
+            method: "POST",
+            headers: { Origin: "http://localhost:5173", "x-csrf-token": csrf },
+            body: JSON.stringify({ confirm: true }),
+          },
+          identity,
+          // Keep the shared cookie immutable while requests race.
+          jar.clone(),
+        ),
+      ),
+    );
+    assert.deepEqual([first.status, second.status].sort((a, b) => a - b), [200, 404]);
+    const transferred = await db.select().from(quizAttempts).where(eq(quizAttempts.id, started.body.attemptId));
+    assert.equal(transferred[0]?.anonymousSessionId, null);
+    assert.ok(transferred[0]?.userId === member.userId || transferred[0]?.userId === otherMember.userId);
   });
 });

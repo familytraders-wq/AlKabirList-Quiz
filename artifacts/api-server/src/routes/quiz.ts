@@ -30,7 +30,7 @@ import {
   taxonomies,
 } from "@workspace/db/schema";
 import { getOwner, requireUser } from "../middlewares/auth";
-import { addUtcDays, canonicalDateFrom } from "../lib/daily-policy";
+import { addUtcDays, canonicalDateAt, canonicalDateFrom } from "../lib/daily-policy";
 
 const router: IRouter = Router();
 
@@ -112,15 +112,20 @@ async function publicQuestions(quizId: string) {
 }
 
 async function attemptState(attemptId: string, res: Response) {
-  const [attempt] = await db
-    .select()
+  const [row] = await db
+    .select({ attempt: quizAttempts, scheduledDate: quizzes.scheduledDate })
     .from(quizAttempts)
+    .innerJoin(quizzes, eq(quizAttempts.quizId, quizzes.id))
     .where(ownerWhere(attemptId, res))
     .limit(1);
-  if (!attempt) return undefined;
+  if (!row) return undefined;
+  const { attempt } = row;
   const result = {
     attemptId: attempt.id,
     quizId: attempt.quizId,
+    challengeDate: row.scheduledDate
+      ? canonicalDateFrom(row.scheduledDate)
+      : canonicalDateAt(attempt.createdAt),
     status: attempt.status as "in_progress" | "completed",
     questions: await publicQuestions(attempt.quizId),
     answeredQuestionIds: (
@@ -359,8 +364,14 @@ router.post("/quiz/attempts/:attemptId/answers", async (req, res, next) => {
 });
 
 async function resultFor(attemptId: string, res: Response) {
-  const [attempt] = await db.select().from(quizAttempts).where(ownerWhere(attemptId, res)).limit(1);
-  if (!attempt) return undefined;
+  const [row] = await db
+    .select({ attempt: quizAttempts, scheduledDate: quizzes.scheduledDate })
+    .from(quizAttempts)
+    .innerJoin(quizzes, eq(quizAttempts.quizId, quizzes.id))
+    .where(ownerWhere(attemptId, res))
+    .limit(1);
+  if (!row) return undefined;
+  const { attempt } = row;
   const rows = await db
     .select({ answer: attemptAnswers, version: questionVersions })
     .from(attemptAnswers)
@@ -376,6 +387,9 @@ async function resultFor(attemptId: string, res: Response) {
     : [];
   return CompleteQuizAttemptResponse.parse({
     attemptId,
+    challengeDate: row.scheduledDate
+      ? canonicalDateFrom(row.scheduledDate)
+      : canonicalDateAt(attempt.createdAt),
     status: attempt.status,
     score: attempt.score ?? 0,
     maxScore: attempt.maxScore ?? 0,

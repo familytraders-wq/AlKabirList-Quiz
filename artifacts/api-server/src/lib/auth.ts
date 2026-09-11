@@ -1,7 +1,7 @@
 import { getAuth } from "@clerk/express";
 import { db } from "@workspace/db";
 import { userRoles, users } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 
 export type ApplicationRole = "reviewer" | "admin";
@@ -21,25 +21,28 @@ function getClerkSubject(req: Request): string | null {
   return auth.userId ?? null;
 }
 
-async function resolveUser(clerkUserId: string): Promise<AuthenticatedUser> {
-  const existing = await db.query.users.findFirst({
-    where: eq(users.clerkUserId, clerkUserId),
+export async function resolveUser(clerkUserId: string): Promise<AuthenticatedUser> {
+  const user = await db.transaction(async (tx) => {
+    const mapped = await tx.query.users.findFirst({
+      where: eq(users.clerkUserId, clerkUserId),
+    });
+    if (mapped) return mapped;
+
+    // Legacy installations used the Clerk subject directly as users.id. Claim
+    // only an unmistakable exact match, and only while it is unmapped.
+    const [claimed] = await tx
+      .update(users)
+      .set({ clerkUserId, updatedAt: new Date() })
+      .where(and(eq(users.id, clerkUserId), isNull(users.clerkUserId)))
+      .returning();
+    if (claimed) return claimed;
+
+    await tx.insert(users).values({ clerkUserId }).onConflictDoNothing({
+      target: users.clerkUserId,
+    });
+    return tx.query.users.findFirst({ where: eq(users.clerkUserId, clerkUserId) });
   });
-
-  if (!existing) {
-    await db
-      .insert(users)
-      .values({ clerkUserId })
-      .onConflictDoNothing({ target: users.clerkUserId });
-  }
-
-  const user = await db.query.users.findFirst({
-    where: eq(users.clerkUserId, clerkUserId),
-  });
-
-  if (!user) {
-    throw new Error("Authenticated user could not be provisioned");
-  }
+  if (!user) throw new Error("Authenticated user could not be provisioned");
 
   const roleRows = await db.query.userRoles.findMany({
     where: eq(userRoles.userId, user.id),
@@ -70,6 +73,20 @@ export async function resolveOptionalUser(
 
 export const optionalUser: RequestHandler = async (req, res, next) => {
   try {
+    const testAuth = res.locals.auth as
+      | { userId: string; role: "member" | "reviewer" | "admin" }
+      | undefined;
+    if (res.locals.authOverride === true) {
+      if (testAuth) {
+        (req as AuthenticatedRequest).authUser = {
+          id: testAuth.userId,
+          clerkUserId: testAuth.userId,
+          roles: testAuth.role === "member" ? [] : [testAuth.role],
+        };
+      }
+      next();
+      return;
+    }
     await resolveOptionalUser(req);
     next();
   } catch (error) {
@@ -79,6 +96,22 @@ export const optionalUser: RequestHandler = async (req, res, next) => {
 
 export const requiredUser: RequestHandler = async (req, res, next) => {
   try {
+    const testAuth = res.locals.auth as
+      | { userId: string; role: "member" | "reviewer" | "admin" }
+      | undefined;
+    if (res.locals.authOverride === true) {
+      if (!testAuth) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      (req as AuthenticatedRequest).authUser = {
+        id: testAuth.userId,
+        clerkUserId: testAuth.userId,
+        roles: testAuth.role === "member" ? [] : [testAuth.role],
+      };
+      next();
+      return;
+    }
     const user = await resolveOptionalUser(req);
     if (!user) {
       res.status(401).json({ error: "Unauthorized" });

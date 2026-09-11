@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { anonymousSessions } from "@workspace/db/schema";
 import { db } from "@workspace/db";
 
@@ -93,8 +94,10 @@ export async function ensureSecurityCookies(
 ): Promise<void> {
   try {
     const cookieReq = req as CookieRequest;
+    let anonymousSessionId: string | undefined;
     if (!cookieReq.cookies?.[ANONYMOUS_COOKIE]) {
       const session = await createAnonymousSession();
+      anonymousSessionId = session.id;
       cookieReq.cookies = {
         ...(cookieReq.cookies ?? {}),
         [ANONYMOUS_COOKIE]: session.token,
@@ -105,6 +108,18 @@ export async function ensureSecurityCookies(
         anonymousCookieOptions(),
       );
     }
+    if (!anonymousSessionId && cookieReq.cookies?.[ANONYMOUS_COOKIE]) {
+      const session = await db.query.anonymousSessions.findFirst({
+        where: and(
+          eq(anonymousSessions.tokenHash, hashAnonymousToken(cookieReq.cookies[ANONYMOUS_COOKIE])),
+          isNull(anonymousSessions.revokedAt),
+          gt(anonymousSessions.expiresAt, new Date()),
+        ),
+        columns: { id: true },
+      });
+      anonymousSessionId = session?.id;
+    }
+    res.locals.anonymousSessionId = anonymousSessionId;
 
     if (!cookieReq.cookies?.[CSRF_COOKIE]) {
       const csrfToken = createCsrfToken();

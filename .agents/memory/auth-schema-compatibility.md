@@ -9,8 +9,8 @@ Keep Clerk identity and guest ownership in the auth tables, while preserving the
 
 **How to apply:** Add new identity foreign keys only where the existing database types match, and treat legacy author metadata as a separate compatibility surface.
 
-The development `users` identity and quiz ownership columns may retain text IDs even when newer Drizzle declarations describe UUIDs. Reconcile missing Clerk columns additively; do not force-cast established identity columns during an automatic schema push.
+Keep internal user IDs and every user-reference column text-compatible. New users receive generated UUID-shaped text IDs, while legacy rows whose text ID is already a Clerk subject must be claimed atomically on first login rather than duplicated.
 
-**Why:** Merged auth code can arrive before the development database gains its additive Clerk columns, while changing the underlying ID type would cascade through existing quiz ownership data.
+**Why:** Forcing UUID types can break legacy ownership data, while treating every text ID as a new account can detach existing attempts and roles from the returning Clerk user.
 
-**How to apply:** Inspect the live development schema before auth-related pushes. Add missing identity columns, indexes, and safe defaults without replacing or casting existing ID columns.
+**How to apply:** Use additive, idempotent reconciliation migrations; map Clerk identity in a separate unique column; accept bounded opaque internal IDs at API boundaries; and claim exact legacy Clerk-subject IDs before inserting.

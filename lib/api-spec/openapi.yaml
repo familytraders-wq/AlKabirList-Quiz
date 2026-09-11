@@ -80,6 +80,8 @@ paths:
                 $ref: "#/components/schemas/AttemptState"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
   /quiz/attempts/{attemptId}/answers:
@@ -299,6 +301,79 @@ paths:
                 $ref: "#/components/schemas/QuizAnalytics"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /admin/users:
+    get:
+      operationId: listAdminUsers
+      tags: [admin]
+      summary: List internal users and assigned access roles
+      responses:
+        "200":
+          description: Internal user access records without personal profile data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserList"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/users/{userId}/roles:
+    post:
+      operationId: grantAdminUserRole
+      tags: [admin]
+      summary: Grant a reviewer or administrator role
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleChangeRequest"
+      responses:
+        "200":
+          description: Updated access record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    delete:
+      operationId: revokeAdminUserRole
+      tags: [admin]
+      summary: Revoke a reviewer or administrator role
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleChangeRequest"
+      responses:
+        "200":
+          description: Updated access record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /auth/me:
     get:
       operationId: getAuthMe
@@ -353,6 +428,15 @@ components:
       schema:
         type: string
         format: uuid
+    UserId:
+      in: path
+      name: userId
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+        pattern: '^[^\s]+$'
     IdempotencyKey:
       in: header
       name: Idempotency-Key
@@ -491,7 +575,7 @@ components:
           maxLength: 128
     AttemptState:
       type: object
-      required: [attemptId, quizId, status, questions, answeredQuestionIds]
+      required: [attemptId, quizId, challengeDate, status, questions, answeredQuestionIds]
       properties:
         attemptId:
           type: string
@@ -499,6 +583,8 @@ components:
         quizId:
           type: string
           format: uuid
+        challengeDate:
+          $ref: "#/components/schemas/CanonicalDailyDate"
         status:
           type: string
           enum: [in_progress, completed]
@@ -557,11 +643,13 @@ components:
                 format: uri
     QuizResult:
       type: object
-      required: [attemptId, status, score, maxScore, answers]
+      required: [attemptId, challengeDate, status, score, maxScore, answers]
       properties:
         attemptId:
           type: string
           format: uuid
+        challengeDate:
+          $ref: "#/components/schemas/CanonicalDailyDate"
         status:
           type: string
           enum: [in_progress, completed]
@@ -810,13 +898,48 @@ components:
       properties:
         id:
           type: string
-          format: uuid
+          minLength: 1
+          maxLength: 256
+          pattern: '^[^\s]+$'
         roles:
           type: array
           items:
             type: string
             enum: [reviewer, admin]
       required: [id, roles]
+    ManagedRole:
+      type: string
+      enum: [reviewer, admin]
+    RoleChangeRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: "#/components/schemas/ManagedRole"
+    AdminUser:
+      type: object
+      required: [id, createdAt, roles]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 256
+          pattern: '^[^\s]+$'
+        createdAt:
+          type: string
+          format: date-time
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManagedRole"
+    AdminUserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUser"
     GuestProgress:
       type: object
       properties:

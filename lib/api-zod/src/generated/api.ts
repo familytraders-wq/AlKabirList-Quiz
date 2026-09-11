@@ -66,9 +66,13 @@ export const StartQuizAttemptBody = zod.object({
   "idempotencyKey": zod.string().min(startQuizAttemptBodyIdempotencyKeyMin).max(startQuizAttemptBodyIdempotencyKeyMax).optional()
 })
 
+export const startQuizAttemptResponseChallengeDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
 export const StartQuizAttemptResponse = zod.object({
   "attemptId": zod.string().uuid(),
   "quizId": zod.string().uuid(),
+  "challengeDate": zod.string().regex(startQuizAttemptResponseChallengeDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
   "status": zod.enum(['in_progress', 'completed']),
   "questions": zod.array(zod.object({
   "id": zod.string().uuid(),
@@ -93,9 +97,13 @@ export const GetQuizAttemptParams = zod.object({
   "attemptId": zod.coerce.string().uuid()
 })
 
+export const getQuizAttemptResponseChallengeDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
 export const GetQuizAttemptResponse = zod.object({
   "attemptId": zod.string().uuid(),
   "quizId": zod.string().uuid(),
+  "challengeDate": zod.string().regex(getQuizAttemptResponseChallengeDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
   "status": zod.enum(['in_progress', 'completed']),
   "questions": zod.array(zod.object({
   "id": zod.string().uuid(),
@@ -172,8 +180,12 @@ export const CompleteQuizAttemptHeader = zod.object({
   "Idempotency-Key": zod.string().min(completeQuizAttemptHeaderIdempotencyKeyMin).max(completeQuizAttemptHeaderIdempotencyKeyMax).optional()
 })
 
+export const completeQuizAttemptResponseChallengeDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
 export const CompleteQuizAttemptResponse = zod.object({
   "attemptId": zod.string().uuid(),
+  "challengeDate": zod.string().regex(completeQuizAttemptResponseChallengeDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
   "status": zod.enum(['in_progress', 'completed']),
   "score": zod.number().int(),
   "maxScore": zod.number().int(),
@@ -199,8 +211,12 @@ export const GetQuizResultParams = zod.object({
   "attemptId": zod.coerce.string().uuid()
 })
 
+export const getQuizResultResponseChallengeDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
 export const GetQuizResultResponse = zod.object({
   "attemptId": zod.string().uuid(),
+  "challengeDate": zod.string().regex(getQuizResultResponseChallengeDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
   "status": zod.enum(['in_progress', 'completed']),
   "score": zod.number().int(),
   "maxScore": zod.number().int(),
@@ -222,9 +238,13 @@ export const GetQuizResultResponse = zod.object({
 /**
  * @summary Get authenticated quiz history
  */
+export const getQuizHistoryResponseItemsItemChallengeDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+
+
 export const GetQuizHistoryResponse = zod.object({
   "items": zod.array(zod.object({
   "attemptId": zod.string().uuid(),
+  "challengeDate": zod.string().regex(getQuizHistoryResponseItemsItemChallengeDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
   "status": zod.enum(['in_progress', 'completed']),
   "score": zod.number().int(),
   "maxScore": zod.number().int(),
@@ -475,8 +495,90 @@ export const GetQuizAnalyticsResponse = zod.object({
 
 
 /**
+ * @summary List internal users and assigned access roles
+ */
+export const listAdminUsersResponseItemsItemIdMax = 256;
+
+
+export const listAdminUsersResponseItemsItemIdRegExp = new RegExp('^[^\\s]+$');
+
+
+export const ListAdminUsersResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().min(1).max(listAdminUsersResponseItemsItemIdMax).regex(listAdminUsersResponseItemsItemIdRegExp),
+  "createdAt": zod.coerce.date(),
+  "roles": zod.array(zod.enum(['reviewer', 'admin']))
+}))
+})
+
+
+/**
+ * @summary Grant a reviewer or administrator role
+ */
+export const grantAdminUserRolePathUserIdMax = 256;
+
+
+export const grantAdminUserRolePathUserIdRegExp = new RegExp('^[^\\s]+$');
+
+
+export const GrantAdminUserRoleParams = zod.object({
+  "userId": zod.coerce.string().min(1).max(grantAdminUserRolePathUserIdMax).regex(grantAdminUserRolePathUserIdRegExp)
+})
+
+export const GrantAdminUserRoleBody = zod.object({
+  "role": zod.enum(['reviewer', 'admin'])
+})
+
+export const grantAdminUserRoleResponseIdMax = 256;
+
+
+export const grantAdminUserRoleResponseIdRegExp = new RegExp('^[^\\s]+$');
+
+
+export const GrantAdminUserRoleResponse = zod.object({
+  "id": zod.string().min(1).max(grantAdminUserRoleResponseIdMax).regex(grantAdminUserRoleResponseIdRegExp),
+  "createdAt": zod.coerce.date(),
+  "roles": zod.array(zod.enum(['reviewer', 'admin']))
+})
+
+
+/**
+ * @summary Revoke a reviewer or administrator role
+ */
+export const revokeAdminUserRolePathUserIdMax = 256;
+
+
+export const revokeAdminUserRolePathUserIdRegExp = new RegExp('^[^\\s]+$');
+
+
+export const RevokeAdminUserRoleParams = zod.object({
+  "userId": zod.coerce.string().min(1).max(revokeAdminUserRolePathUserIdMax).regex(revokeAdminUserRolePathUserIdRegExp)
+})
+
+export const RevokeAdminUserRoleBody = zod.object({
+  "role": zod.enum(['reviewer', 'admin'])
+})
+
+export const revokeAdminUserRoleResponseIdMax = 256;
+
+
+export const revokeAdminUserRoleResponseIdRegExp = new RegExp('^[^\\s]+$');
+
+
+export const RevokeAdminUserRoleResponse = zod.object({
+  "id": zod.string().min(1).max(revokeAdminUserRoleResponseIdMax).regex(revokeAdminUserRoleResponseIdRegExp),
+  "createdAt": zod.coerce.date(),
+  "roles": zod.array(zod.enum(['reviewer', 'admin']))
+})
+
+
+/**
  * @summary Get the current account and guest-progress state
  */
+export const getAuthMeResponseUserOneIdMax = 256;
+
+
+export const getAuthMeResponseUserOneIdRegExp = new RegExp('^[^\\s]+$');
 export const getAuthMeResponseGuestProgressCountMin = 0;
 
 
@@ -484,7 +586,7 @@ export const getAuthMeResponseGuestProgressCountMin = 0;
 export const GetAuthMeResponse = zod.object({
   "authenticated": zod.boolean(),
   "user": zod.union([zod.object({
-  "id": zod.string().uuid(),
+  "id": zod.string().min(1).max(getAuthMeResponseUserOneIdMax).regex(getAuthMeResponseUserOneIdRegExp),
   "roles": zod.array(zod.enum(['reviewer', 'admin']))
 }),zod.null()]),
   "guestProgress": zod.object({

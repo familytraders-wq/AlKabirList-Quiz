@@ -40,7 +40,8 @@ export const userRoleEnum = pgEnum("user_role", ["reviewer", "admin"]);
 export const users = pgTable(
   "users",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    // Keep the original text identity type while generating opaque internal IDs.
+    id: text("id").default(sql`gen_random_uuid()::text`).primaryKey(),
     clerkUserId: text("clerk_user_id").unique(),
     role: appRole("role").notNull().default("member"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -53,10 +54,10 @@ export const userRoles = pgTable(
   "user_roles",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     role: userRoleEnum("role").notNull(),
     grantedAt: timestamp("granted_at", { withTimezone: true }).defaultNow().notNull(),
-    grantedByUserId: uuid("granted_by_user_id"),
+    grantedByUserId: text("granted_by_user_id"),
   },
   (table) => [
     unique("user_roles_user_role_unique").on(table.userId, table.role),
@@ -216,7 +217,7 @@ export const quizAttempts = pgTable(
     quizId: uuid("quiz_id")
       .notNull()
       .references(() => quizzes.id),
-    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
     anonymousSessionId: uuid("anonymous_session_id").references(
       () => anonymousSessions.id,
       { onDelete: "set null" },
@@ -255,7 +256,7 @@ export const guestProgressLinks = pgTable(
   "guest_progress_links",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     anonymousSessionId: uuid("anonymous_session_id")
       .notNull()
       .references(() => anonymousSessions.id, { onDelete: "restrict" }),
@@ -304,7 +305,7 @@ export const reviewEvents = pgTable(
       .notNull()
       .references(() => questions.id, { onDelete: "cascade" }),
     versionId: uuid("version_id").references(() => questionVersions.id),
-    reviewerId: uuid("reviewer_id")
+    reviewerId: text("reviewer_id")
       .notNull()
       .references(() => users.id),
     fromStatus: questionStatus("from_status"),
@@ -318,7 +319,7 @@ export const reviewEvents = pgTable(
 
 export const generationRuns = pgTable("generation_runs", {
   id: uuid("id").defaultRandom().primaryKey(),
-  requestedBy: uuid("requested_by")
+  requestedBy: text("requested_by")
     .notNull()
     .references(() => users.id),
   provider: text("provider").notNull(),
@@ -333,7 +334,7 @@ export const rewardLedger = pgTable(
   "reward_ledger",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    userId: uuid("user_id")
+    userId: text("user_id")
       .notNull()
       .references(() => users.id),
     attemptId: uuid("attempt_id")

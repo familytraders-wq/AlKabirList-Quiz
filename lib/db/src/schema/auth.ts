@@ -17,7 +17,8 @@ export const userRoleEnum = pgEnum("user_role", ["reviewer", "admin"]);
 export const users = pgTable(
   "users",
   {
-    id: uuid("id").defaultRandom().primaryKey(),
+    // Clerk user subjects are opaque text identifiers, not UUIDs.
+    id: text("id").primaryKey(),
     clerkUserId: text("clerk_user_id").notNull().unique(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -33,14 +34,14 @@ export const userRoles = pgTable(
   "user_roles",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    userId: uuid("user_id")
+    userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: userRoleEnum("role").notNull(),
     grantedAt: timestamp("granted_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
-    grantedByUserId: uuid("granted_by_user_id"),
+    grantedByUserId: text("granted_by_user_id"),
   },
   (table) => [
     unique("user_roles_user_role_unique").on(table.userId, table.role),
@@ -76,7 +77,7 @@ export const quizAttempts = pgTable(
   "quiz_attempts",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
     anonymousSessionId: uuid("anonymous_session_id").references(
       () => anonymousSessions.id,
       { onDelete: "set null" },
@@ -111,7 +112,7 @@ export const guestProgressLinks = pgTable(
   "guest_progress_links",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    userId: uuid("user_id")
+    userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     anonymousSessionId: uuid("anonymous_session_id")

@@ -5,14 +5,15 @@
  * Reviewed AlKabir Islamic Challenge API
  * OpenAPI spec version: 0.2.0
  */
-import type { AuthUserRolesItem } from './authUserRolesItem';
+import type { ManagedRole } from './managedRole';
 
-export interface AuthUser {
+export interface AdminUser {
   /**
      * @minLength 1
      * @maxLength 256
      * @pattern ^[^\s]+$
      */
   id: string;
-  roles: AuthUserRolesItem[];
+  createdAt: Date;
+  roles: ManagedRole[];
 }

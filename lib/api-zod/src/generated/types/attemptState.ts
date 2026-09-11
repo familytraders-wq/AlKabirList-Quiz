@@ -6,11 +6,13 @@
  * OpenAPI spec version: 0.2.0
  */
 import type { AttemptStateStatus } from './attemptStateStatus';
+import type { CanonicalDailyDate } from './canonicalDailyDate';
 import type { PublicQuestion } from './publicQuestion';
 
 export interface AttemptState {
   attemptId: string;
   quizId: string;
+  challengeDate: CanonicalDailyDate;
   status: AttemptStateStatus;
   questions: PublicQuestion[];
   answeredQuestionIds: string[];

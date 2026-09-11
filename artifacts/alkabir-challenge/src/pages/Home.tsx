@@ -1,12 +1,8 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Navbar } from "@/components/layout/Navbar";
+import { useUtcDayBoundary } from "@/hooks/use-utc-day-boundary";
 import {
-  formatChallengeDateUTC,
-  formatNextChallengeReset,
-  getChallengeDate,
-} from "@/data/quiz";
-import { 
   BookOpen, 
   Sprout, 
   Users, 
@@ -26,8 +22,7 @@ import topicHistory from "@assets/generated_images/topic_history.jpg";
 export function Home() {
   const [, setLocation] = useLocation();
   const [activeLevel, setActiveLevel] = useState<string>("Adult");
-  const challengeDate = formatChallengeDateUTC(getChallengeDate());
-  const nextReset = formatNextChallengeReset();
+  const { formattedChallengeDate: challengeDate, nextReset } = useUtcDayBoundary();
 
   const levels = [
     { id: "k2", name: "K - 2", desc: "Ages 5-7", icon: Sprout, color: "bg-[#E6F4EA] text-[#2E6B47]" },

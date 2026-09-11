@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { useEffect, useState } from "react";
 import { Search, Menu } from "lucide-react";
 import { useAuth } from "@clerk/react";
 import { LogoutButton } from "@/components/auth/LogoutButton";
@@ -6,6 +7,17 @@ import { LogoutButton } from "@/components/auth/LogoutButton";
 export function Navbar() {
   const [location] = useLocation();
   const { isLoaded, isSignedIn } = useAuth();
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) {
+      setIsAdmin(false);
+      return;
+    }
+    void fetch("/api/auth/me", { credentials: "same-origin" })
+      .then((response) => response.json())
+      .then((state: { user?: { roles: string[] } | null }) => setIsAdmin(state.user?.roles.includes("admin") ?? false))
+      .catch(() => setIsAdmin(false));
+  }, [isLoaded, isSignedIn]);
 
   const handleScroll = (e: React.MouseEvent<HTMLAnchorElement>, id: string) => {
     e.preventDefault();
@@ -45,6 +57,7 @@ export function Navbar() {
           <Link href="/" className="text-primary border-b-2 border-primary py-5">
             Islamic Challenge
           </Link>
+          {isAdmin && <Link href="/admin/users" className="text-muted-foreground hover:text-primary transition-colors">Access</Link>}
           <a 
             href="#about" 
             onClick={(e) => handleScroll(e, 'about')}
