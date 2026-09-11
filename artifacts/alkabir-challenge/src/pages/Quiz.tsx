@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { challengeQuestions } from "@/data/quiz";
-import { Menu, ArrowLeft, ArrowRight, CheckCircle2, XCircle } from "lucide-react";
+import {
+  challengeQuestions,
+  formatChallengeDateUTC,
+  formatNextChallengeReset,
+  getChallengeDate,
+} from "@/data/quiz";
+import { Menu, ArrowLeft, ArrowRight, CalendarClock, CheckCircle2, XCircle } from "lucide-react";
 
 export function Quiz() {
   const [, setLocation] = useLocation();
@@ -9,6 +14,8 @@ export function Quiz() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [status, setStatus] = useState<'answering' | 'feedback' | 'finished'>('answering');
   const [score, setScore] = useState(0);
+  const challengeDate = formatChallengeDateUTC(getChallengeDate());
+  const nextReset = formatNextChallengeReset();
 
   const question = challengeQuestions[currentIndex];
   const progressPercent = Math.round(((currentIndex + 1) / challengeQuestions.length) * 100);
@@ -44,6 +51,17 @@ export function Quiz() {
           <p className="text-muted-foreground mb-8">
             You've completed today's challenge. Every moment spent seeking knowledge is a step toward a brighter tomorrow.
           </p>
+          <div className="bg-secondary/40 border border-border/60 rounded-xl p-4 w-full mb-6 text-left">
+            <div className="flex items-start gap-3">
+              <CalendarClock className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-foreground">Challenge date: {challengeDate}</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  The next challenge opens at midnight UTC. For you, that is {nextReset}.
+                </p>
+              </div>
+            </div>
+          </div>
           <div className="bg-card border border-border rounded-2xl p-6 w-full mb-8 shadow-sm">
             <div className="text-4xl font-serif text-primary mb-1">{score}/{challengeQuestions.length}</div>
             <div className="text-sm font-medium uppercase tracking-widest text-muted-foreground">Correct Answers</div>
@@ -73,6 +91,18 @@ export function Quiz() {
         >
           <ArrowLeft className="w-4 h-4" /> Today's challenge
         </button>
+
+        <div className="bg-secondary/40 border border-border/60 rounded-xl p-4 mb-8">
+          <div className="flex items-start gap-3">
+            <CalendarClock className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">{challengeDate}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                This challenge is shared worldwide. The next reset is at midnight UTC ({nextReset} for you).
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* Progress */}
         <div className="mb-10">

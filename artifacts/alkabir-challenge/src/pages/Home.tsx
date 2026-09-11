@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Navbar } from "@/components/layout/Navbar";
+import {
+  formatChallengeDateUTC,
+  formatNextChallengeReset,
+  getChallengeDate,
+} from "@/data/quiz";
 import { 
   BookOpen, 
   Sprout, 
@@ -21,6 +26,8 @@ import topicHistory from "@assets/generated_images/topic_history.jpg";
 export function Home() {
   const [, setLocation] = useLocation();
   const [activeLevel, setActiveLevel] = useState<string>("Adult");
+  const challengeDate = formatChallengeDateUTC(getChallengeDate());
+  const nextReset = formatNextChallengeReset();
 
   const levels = [
     { id: "k2", name: "K - 2", desc: "Ages 5-7", icon: Sprout, color: "bg-[#E6F4EA] text-[#2E6B47]" },
@@ -114,9 +121,14 @@ export function Home() {
               </div>
               <div className="space-y-1">
                 <h2 className="font-serif text-2xl font-semibold text-foreground">Today's Islamic Challenge</h2>
-                <p className="text-sm font-medium text-muted-foreground">5 questions &bull; About 2 minutes</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  {challengeDate} &bull; 5 questions &bull; About 2 minutes
+                </p>
                 <p className="text-sm text-muted-foreground mt-2 max-w-md hidden md:block leading-relaxed">
                   A new set of questions each day to help you learn, reflect, and stay connected.
+                </p>
+                <p className="text-xs text-muted-foreground/80 mt-2 max-w-md leading-relaxed">
+                  New challenges open at midnight UTC. For you, the next reset is {nextReset}.
                 </p>
               </div>
             </div>
