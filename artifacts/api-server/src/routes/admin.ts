@@ -271,26 +271,42 @@ async function changeUserRole(
       return { error: "SELF_ADMIN_REVOKE" as const };
     }
     if (action === "grant") {
-       await tx.insert(userRoles).values({ userId: target.id, role, grantedByUserId: actorId }).onConflictDoNothing({
+      const [inserted] = await tx.insert(userRoles).values({ userId: target.id, role, grantedByUserId: actorId }).onConflictDoNothing({
         target: [userRoles.userId, userRoles.role],
-      });
+      }).returning({ id: userRoles.id });
+      if (inserted) {
+        await writeAuditEvent(tx, {
+          actorId,
+          action: "role_granted",
+          entityType: "user_role",
+          entityId: target.managementId,
+          metadata: { role },
+        });
+      }
     } else {
-      if (role === "admin") {
+      const [existingRole] = await tx
+        .select({ id: userRoles.id })
+        .from(userRoles)
+        .where(and(eq(userRoles.userId, target.id), eq(userRoles.role, role)))
+        .limit(1);
+      if (existingRole && role === "admin") {
         const [{ total }] = await tx
           .select({ total: count() })
           .from(userRoles)
           .where(eq(userRoles.role, "admin"));
         if (Number(total) <= 1) return { error: "LAST_ADMIN" as const };
       }
-       await tx.delete(userRoles).where(and(eq(userRoles.userId, target.id), eq(userRoles.role, role)));
+      if (existingRole) {
+        await tx.delete(userRoles).where(eq(userRoles.id, existingRole.id));
+        await writeAuditEvent(tx, {
+          actorId,
+          action: "role_revoked",
+          entityType: "user_role",
+          entityId: target.managementId,
+          metadata: { role },
+        });
+      }
     }
-    await writeAuditEvent(tx, {
-      actorId,
-      action: action === "grant" ? "role_granted" : "role_revoked",
-      entityType: "user_role",
-       entityId: target.managementId,
-      metadata: { role },
-    });
     return { user: target };
   });
 }

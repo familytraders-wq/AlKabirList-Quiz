@@ -3,7 +3,7 @@ import { after, before, describe, it } from "node:test";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import {
   operatorAuditEvents,
@@ -166,16 +166,46 @@ describe("admin user access management", () => {
   });
 
   it("allows only the protected Super Admin to grant and revoke reviewer access", async () => {
-    const grant = await mutation(`/admin/users/${managementIdFor(member.userId)}/roles`, admin, "POST", "reviewer");
+    const targetId = managementIdFor(member.userId);
+    const grant = await mutation(`/admin/users/${targetId}/roles`, admin, "POST", "reviewer");
     assert.equal(grant.status, 200);
-    const repeatGrant = await mutation(`/admin/users/${managementIdFor(member.userId)}/roles`, admin, "POST", "reviewer");
+    const repeatGrant = await mutation(`/admin/users/${targetId}/roles`, admin, "POST", "reviewer");
     assert.equal(repeatGrant.status, 200);
     assert.deepEqual(repeatGrant.body.roles.filter((role: string) => role === "reviewer"), ["reviewer"]);
-    assert.equal((await mutation(`/admin/users/${managementIdFor(member.userId)}/roles`, admin, "DELETE", "reviewer")).status, 200);
-    assert.equal((await mutation(`/admin/users/${managementIdFor(member.userId)}/roles`, admin, "DELETE", "reviewer")).status, 200);
+    assert.equal((await mutation(`/admin/users/${targetId}/roles`, admin, "DELETE", "reviewer")).status, 200);
+    assert.equal((await mutation(`/admin/users/${targetId}/roles`, admin, "DELETE", "reviewer")).status, 200);
+    assert.equal((await mutation(`/admin/users/${targetId}/roles`, admin, "POST", "admin")).status, 200);
+    assert.equal((await mutation(`/admin/users/${targetId}/roles`, admin, "DELETE", "admin")).status, 200);
+
+    const audit = await db
+      .select()
+      .from(operatorAuditEvents)
+      .where(and(
+        eq(operatorAuditEvents.actorId, admin.userId),
+        eq(operatorAuditEvents.entityType, "user_role"),
+        eq(operatorAuditEvents.entityId, targetId),
+      ))
+      .orderBy(asc(operatorAuditEvents.createdAt));
+    assert.deepEqual(audit.map((event) => event.action), ["role_granted", "role_revoked", "role_granted", "role_revoked"]);
+    assert.deepEqual(audit.map((event) => event.metadata), [
+      { role: "reviewer" },
+      { role: "reviewer" },
+      { role: "admin" },
+      { role: "admin" },
+    ]);
+    assert.ok(audit.every((event) => event.createdAt instanceof Date));
+    const auditResponse = await request("/admin/beta/audit?action=role_granted&entityType=user_role", admin);
+    assert.equal(auditResponse.status, 200);
+    assert.ok(auditResponse.body.items.some((event: { actorId: string; entityId: string }) =>
+      event.actorId === admin.userId && event.entityId === targetId,
+    ));
   });
 
   it("rejects ordinary admin role and permission management", async () => {
+    const memberRoleChange = await mutation(`/admin/users/${managementIdFor(member.userId)}/roles`, member, "POST", "reviewer");
+    assert.equal(memberRoleChange.status, 403);
+    assert.equal(memberRoleChange.body.code, "FORBIDDEN");
+    assert.equal(memberRoleChange.body.message, "A trusted reviewer role is required");
     assert.equal((await mutation(`/admin/users/${managementIdFor(member.userId)}/roles`, secondAdmin, "POST", "reviewer")).status, 403);
     const response = await request("/admin/permission-templates", secondAdmin);
     assert.equal(response.status, 403);
