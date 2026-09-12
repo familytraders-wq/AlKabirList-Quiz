@@ -57,6 +57,9 @@ import type {
   PermissionTemplateAssignment,
   PermissionTemplateInput,
   PermissionTemplateList,
+  QuestionCsvImportError,
+  QuestionCsvImportRequest,
+  QuestionCsvImportResponse,
   QuestionWriteRequest,
   QuizAnalytics,
   QuizConfig,
@@ -1752,6 +1755,95 @@ export const useUpdateAdminQuestion = <TError = ErrorType<ForbiddenResponse | No
         TContext
       > => {
       return useMutation(getUpdateAdminQuestionMutationOptions(options));
+    }
+
+export const getImportAdminQuestionsCsvUrl = () => {
+
+
+
+
+  return `/api/admin/quiz/questions/import-csv`
+}
+
+/**
+ * Create-only, all-or-nothing import. The server parses and validates the raw CSV text authoritatively.
+ * @summary Create draft questions from a validated CSV file
+ */
+export const importAdminQuestionsCsv = async (questionCsvImportRequest: QuestionCsvImportRequest, options?: Parameters<typeof customFetch>[1]): Promise<QuestionCsvImportResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<QuestionCsvImportResponse>(getImportAdminQuestionsCsvUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(questionCsvImportRequest)
+  }
+);}
+
+
+
+
+
+export const getImportAdminQuestionsCsvMutationKey = () => ['importAdminQuestionsCsv'] as const;
+
+export const getImportAdminQuestionsCsvMutationOptions = <TError = ErrorType<QuestionCsvImportError | ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importAdminQuestionsCsv>>, TError,ImportAdminQuestionsCsvMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importAdminQuestionsCsv>>, TError,ImportAdminQuestionsCsvMutationVariables, TContext> => {
+
+const mutationKey = getImportAdminQuestionsCsvMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importAdminQuestionsCsv>>, ImportAdminQuestionsCsvMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  importAdminQuestionsCsv(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportAdminQuestionsCsvMutationResult = NonNullable<Awaited<ReturnType<typeof importAdminQuestionsCsv>>>
+    export type ImportAdminQuestionsCsvMutationBody = BodyType<QuestionCsvImportRequest>
+    export type ImportAdminQuestionsCsvMutationError = ErrorType<QuestionCsvImportError | ForbiddenResponse>
+    export type ImportAdminQuestionsCsvMutationVariables = {data: BodyType<QuestionCsvImportRequest>}
+
+    /**
+ * @summary Create draft questions from a validated CSV file
+ */
+export const useImportAdminQuestionsCsv = <TError = ErrorType<QuestionCsvImportError | ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importAdminQuestionsCsv>>, TError,ImportAdminQuestionsCsvMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importAdminQuestionsCsv>>,
+        TError,
+        ImportAdminQuestionsCsvMutationVariables,
+        TContext
+      > => {
+      return useMutation(getImportAdminQuestionsCsvMutationOptions(options));
     }
 
 export const getReviewQuestionUrl = (questionId: string,) => {
@@ -3607,4 +3699,3 @@ export const usePatchMyProfile = <TError = ErrorType<BadRequestResponse | Unauth
       > => {
       return useMutation(getPatchMyProfileMutationOptions(options));
     }
-// generated output

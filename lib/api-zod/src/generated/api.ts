@@ -652,6 +652,28 @@ export const UpdateAdminQuestionResponse = zod.object({
 
 
 /**
+ * Create-only, all-or-nothing import. The server parses and validates the raw CSV text authoritatively.
+ * @summary Create draft questions from a validated CSV file
+ */
+
+
+
+export const ImportAdminQuestionsCsvBody = zod.object({
+  "filename": zod.string().min(1),
+  "csv": zod.string().describe('Raw UTF-8 CSV text. The server enforces a 2 MiB limit.')
+})
+
+
+
+
+
+export const ImportAdminQuestionsCsvResponse = zod.object({
+  "importedCount": zod.number().int().min(1),
+  "questionIds": zod.array(zod.string().uuid()).min(1)
+})
+
+
+/**
  * @summary Apply an audited review transition
  */
 export const ReviewQuestionParams = zod.object({
@@ -1264,4 +1286,3 @@ export const PatchMyProfileResponse = zod.object({
   "profileCompletedAt": zod.coerce.date().nullable(),
   "profileComplete": zod.boolean()
 })
-// generated output

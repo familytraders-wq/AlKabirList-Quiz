@@ -22,12 +22,14 @@ import {
   users,
   userRoles,
   operatorAuditEvents,
+  taxonomies,
 } from "@workspace/db/schema";
 import { createApp } from "../app";
 
 type Identity = {
   userId: string;
   role: "member" | "reviewer" | "admin";
+  permissions?: string[];
 };
 
 type ResponseData = {
@@ -71,6 +73,12 @@ const otherMember: Identity = {
 const reviewer: Identity = {
   userId: randomUUID(),
   role: "reviewer",
+  permissions: [
+    "content.view",
+    "content.manage",
+    "schedule.view",
+    "schedule.manage",
+  ],
 };
 const identities = new Map<string, Identity>(
   [member, otherMember, reviewer].map((identity) => [identity.userId, identity]),
@@ -81,6 +89,7 @@ let baseUrl: string;
 const scheduledQuizIds: string[] = [];
 const scheduledQuestionIds: string[] = [];
 const scheduledVersionIds: string[] = [];
+const csvTaxonomyIds: string[] = [];
 const fixture = {
   approvedQuizId: randomUUID(),
   approvedQuestionId: randomUUID(),
@@ -348,6 +357,9 @@ after(async () => {
     await db.delete(questionChoices).where(inArray(questionChoices.versionId, scheduledVersionIds));
     await db.delete(questionVersions).where(inArray(questionVersions.id, scheduledVersionIds));
     await db.delete(questions).where(inArray(questions.id, scheduledQuestionIds));
+  }
+  if (csvTaxonomyIds.length) {
+    await db.delete(taxonomies).where(inArray(taxonomies.id, csvTaxonomyIds));
   }
   await db.delete(questionChoices).where(inArray(questionChoices.versionId, [
     fixture.approvedVersionId,
@@ -1105,5 +1117,151 @@ describe("question review transitions", () => {
     }, reviewer);
     assert.equal(stale.status, 409);
     assert.equal(stale.body.code, "STALE_REVIEW");
+  });
+});
+
+describe("CSV question imports", () => {
+  const header = [
+    "prompt", "explanation", "type", "points",
+    "choice_1", "choice_1_correct", "choice_2", "choice_2_correct",
+    "choice_3", "choice_3_correct", "choice_4", "choice_4_correct",
+    "source_title", "source_url", "category_id", "difficulty_id", "audience_ids",
+  ];
+  const csvEscape = (value: string) => /[",\n]/.test(value)
+    ? `"${value.replaceAll('"', '""')}"`
+    : value;
+  const row = (prompt: string, overrides: Record<number, string> = {}) => {
+    const values = Array.from({ length: header.length }, () => "");
+    values[0] = prompt;
+    values[2] = "multiple_choice";
+    values[3] = "5";
+    values[4] = "Correct";
+    values[5] = "true";
+    values[6] = "Incorrect";
+    values[7] = "false";
+    for (const [index, value] of Object.entries(overrides)) values[Number(index)] = value;
+    return values.map(csvEscape).join(",");
+  };
+  const csv = (...rows: string[]) => `${header.join(",")}\n${rows.join("\n")}\n`;
+
+  it("imports two drafts with quoted commas and creates one audit event per question", async () => {
+    const response = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({
+        filename: "questions.csv",
+        csv: csv(row("A question, with a comma"), row("A second question")),
+      }),
+    }, reviewer);
+    assert.equal(response.status, 201, JSON.stringify(response.body));
+    assert.equal(response.body.importedCount, 2);
+    assert.equal(response.body.questionIds.length, 2);
+    scheduledQuestionIds.push(...response.body.questionIds);
+    const importedVersions = await db.select({ prompt: questionVersions.prompt }).from(questionVersions)
+      .where(inArray(questionVersions.questionId, response.body.questionIds));
+    assert.ok(importedVersions.some((version) => version.prompt === "A question, with a comma"));
+    const audits = await db.select().from(operatorAuditEvents).where(
+      and(eq(operatorAuditEvents.action, "question_created"), inArray(operatorAuditEvents.entityId, response.body.questionIds)),
+    );
+    assert.equal(audits.length, 2);
+  });
+
+  it("accepts escape-heavy JSON that is over the global parser limit", async () => {
+    const escapedPrompt = `${"\\".repeat(200_000)},"quoted"`;
+    const response = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({
+        filename: "escape-heavy.csv",
+        csv: csv(row(escapedPrompt)),
+      }),
+    }, reviewer);
+    assert.notEqual(response.status, 413);
+    assert.ok([201, 400].includes(response.status), JSON.stringify(response.body));
+    if (response.status === 201) scheduledQuestionIds.push(...response.body.questionIds);
+  });
+
+  it("denies users without content.manage", async () => {
+    const response = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Denied")) }),
+    }, member);
+    assert.equal(response.status, 403);
+  });
+
+  it("rejects malformed CSV and exact-header violations", async () => {
+    const malformed = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "questions.csv", csv: `${header.join(",")}\n"unclosed` }),
+    }, reviewer);
+    assert.equal(malformed.status, 400);
+    assert.match(malformed.body.rowErrors[0].message, /Malformed CSV/);
+
+    const wrongHeader = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "questions.csv", csv: `${header.slice(0, -1).join(",")}\n${row("Wrong header")}` }),
+    }, reviewer);
+    assert.equal(wrongHeader.status, 400);
+    assert.equal(wrongHeader.body.rowErrors[0].row, 1);
+  });
+
+  it("validates every row before writing and rejects normalized duplicate prompts", async () => {
+    const invalid = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Will not be written"), row("Invalid", { 5: "yes" })) }),
+    }, reviewer);
+    assert.equal(invalid.status, 400);
+    assert.ok(invalid.body.rowErrors.some((error: { row: number; column: string }) => error.row === 3 && error.column === "choice_1_correct"));
+    const noWrites = await db.select().from(questionVersions).where(eq(questionVersions.prompt, "Will not be written"));
+    assert.equal(noWrites.length, 0);
+
+    const duplicate = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Normalize Me"), row(" normalize   me ")) }),
+    }, reviewer);
+    assert.equal(duplicate.status, 400);
+    assert.ok(duplicate.body.rowErrors.some((error: { column: string }) => error.column === "prompt"));
+  });
+
+  it("rejects row and file limits", async () => {
+    const tooManyRows = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "questions.csv", csv: csv(...Array.from({ length: 51 }, (_, index) => row(`Question ${index}`))) }),
+    }, reviewer);
+    assert.equal(tooManyRows.status, 400);
+    assert.match(tooManyRows.body.rowErrors[0].message, /50/);
+
+    const tooLarge = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "questions.csv", csv: "x".repeat(2 * 1024 * 1024 + 1) }),
+    }, reviewer);
+    assert.equal(tooLarge.status, 400);
+    assert.match(tooLarge.body.rowErrors[0].message, /2 MiB/);
+  });
+
+  it("requires taxonomy IDs to exist with the correct kinds", async () => {
+    const categoryId = randomUUID();
+    const audienceId = randomUUID();
+    csvTaxonomyIds.push(categoryId, audienceId);
+    await db.insert(taxonomies).values([
+      { id: categoryId, kind: "category", slug: `csv-category-${categoryId}`, label: "CSV category", sortOrder: 700001 },
+      { id: audienceId, kind: "audience", slug: `csv-audience-${audienceId}`, label: "CSV audience", sortOrder: 700001 },
+    ]);
+    const wrongKind = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({
+        filename: "questions.csv",
+        csv: csv(row("Wrong taxonomy kind", { 14: audienceId })),
+      }),
+    }, reviewer);
+    assert.equal(wrongKind.status, 400);
+    assert.ok(wrongKind.body.rowErrors.some((error: { column: string; message: string }) =>
+      error.column === "category_id" && /category/.test(error.message)));
+
+    const missing = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Missing taxonomy", { 14: randomUUID() })) }),
+    }, reviewer);
+    assert.equal(missing.status, 400);
+    assert.ok(missing.body.rowErrors.some((error: { column: string; message: string }) =>
+      error.column === "category_id" && /does not exist/.test(error.message)));
   });
 });

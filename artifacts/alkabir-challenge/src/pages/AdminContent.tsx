@@ -10,6 +10,7 @@ import {
   useUpdateAdminQuestion,
   useReviewQuestion,
   useCreateGenerationRun,
+  useImportAdminQuestionsCsv,
   QuestionStatus,
   AdminQuestion,
   QuestionChoiceInput,
@@ -302,6 +303,7 @@ function IntakeView() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <CsvImportCard />
       <div className="flex gap-4 mb-4">
         <Button 
           variant={activeTab === "manual" ? "default" : "outline"} 
@@ -322,6 +324,194 @@ function IntakeView() {
       {activeTab === "manual" && <ManualDraftForm />}
       {activeTab === "run" && <GenerationRunForm />}
     </div>
+  );
+}
+
+const CSV_TEMPLATE_HEADER = [
+  "prompt",
+  "explanation",
+  "type",
+  "points",
+  "choice_1",
+  "choice_1_correct",
+  "choice_2",
+  "choice_2_correct",
+  "choice_3",
+  "choice_3_correct",
+  "choice_4",
+  "choice_4_correct",
+  "source_title",
+  "source_url",
+  "category_id",
+  "difficulty_id",
+  "audience_ids",
+].join(",");
+const CSV_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+
+type CsvRowError = { row: number; column: string; message: string };
+
+function CsvImportCard() {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+  const importMutation = useImportAdminQuestionsCsv();
+  const [file, setFile] = useState<File | null>(null);
+  const [csvText, setCsvText] = useState("");
+  const [isReading, setIsReading] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: "error" | "success"; text: string } | null>(null);
+  const [rowErrors, setRowErrors] = useState<CsvRowError[]>([]);
+  const readGeneration = useRef(0);
+
+  const chooseFile = (selected: File | undefined) => {
+    if (!selected) return;
+    const generation = ++readGeneration.current;
+    setFeedback(null);
+    setRowErrors([]);
+    const rejectFile = (message: string) => {
+      setFile(null);
+      setCsvText("");
+      setIsReading(false);
+      if (inputRef.current) inputRef.current.value = "";
+      setFeedback({ type: "error", text: message });
+    };
+    if (!selected.name.toLowerCase().endsWith(".csv")) {
+      rejectFile("Choose a file with a .csv extension.");
+      return;
+    }
+    const mimeType = selected.type.trim().toLowerCase();
+    if (mimeType && !["text/csv", "application/csv", "application/vnd.ms-excel"].includes(mimeType)) {
+      rejectFile("Choose a CSV file with a supported MIME type.");
+      return;
+    }
+    if (selected.size > CSV_IMPORT_MAX_BYTES) {
+      rejectFile("CSV files must be 2 MiB or smaller.");
+      return;
+    }
+    setFile(selected);
+    setCsvText("");
+    setIsReading(true);
+    selected.text().then((text) => {
+      if (generation !== readGeneration.current) return;
+      setCsvText(text);
+    }).catch(() => {
+      if (generation !== readGeneration.current) return;
+      setFile(null);
+      setCsvText("");
+      setFeedback({ type: "error", text: "The selected file could not be read." });
+    }).finally(() => {
+      if (generation === readGeneration.current) setIsReading(false);
+    });
+  };
+
+  const downloadTemplate = () => {
+    const blob = new Blob([`${CSV_TEMPLATE_HEADER}\n`], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "alkabir-question-import-template.csv";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const upload = () => {
+    if (!file || isReading || !csvText) return;
+    setFeedback(null);
+    setRowErrors([]);
+    importMutation.mutate(
+      { data: { filename: file.name, csv: csvText } },
+      {
+        onSuccess: (result) => {
+          setFeedback({
+            type: "success",
+            text: `${result.importedCount} draft question${result.importedCount === 1 ? "" : "s"} imported successfully.`,
+          });
+          setFile(null);
+          setCsvText("");
+          if (inputRef.current) inputRef.current.value = "";
+          queryClient.invalidateQueries({ queryKey: getListAdminQuestionsQueryKey() });
+        },
+        onError: (error: any) => {
+          const errors = (error?.data?.rowErrors ?? error?.response?.data?.rowErrors) as CsvRowError[] | undefined;
+          setRowErrors(Array.isArray(errors) ? errors : []);
+          setFeedback({
+            type: "error",
+            text: error?.data?.error ?? error?.response?.data?.error ?? "CSV import failed. No questions were created.",
+          });
+        },
+      },
+    );
+  };
+
+  return (
+    <section className="rounded-xl border border-primary/20 bg-primary/[0.03] p-5 shadow-sm space-y-4" aria-labelledby="csv-import-heading">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 id="csv-import-heading" className="font-serif text-xl font-medium text-primary">Import questions from CSV</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Imports create new draft questions only. Validation is all-or-nothing: if one row fails, nothing is written.
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={downloadTemplate}>Download template</Button>
+      </div>
+
+      <div
+        className="rounded-lg border border-dashed border-primary/30 bg-background/70 p-5 text-center transition-colors hover:border-primary"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          chooseFile(event.dataTransfer.files[0]);
+        }}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="sr-only"
+          onChange={(event) => chooseFile(event.target.files?.[0])}
+        />
+        <p className="text-sm font-medium">Drop a CSV file here, or choose one from your device.</p>
+        <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => inputRef.current?.click()}>
+          Choose CSV file
+        </Button>
+        {file && (
+          <p className="mt-3 text-sm text-muted-foreground" aria-live="polite">
+            <span className="font-medium text-foreground">{file.name}</span> · {(file.size / 1024).toFixed(1)} KB
+          </p>
+        )}
+      </div>
+
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        UTF-8 CSV (BOM supported), up to 2 MiB and 50 data rows. Use <code className="rounded bg-muted px-1">true</code> or <code className="rounded bg-muted px-1">false</code> flags, 2–4 choices, and semicolon-delimited audience UUIDs. Quoted commas are supported.
+      </p>
+
+      {feedback && (
+        <div className={classNames("rounded-md p-3 text-sm", feedback.type === "error" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary")} role={feedback.type === "error" ? "alert" : "status"}>
+          {feedback.text}
+        </div>
+      )}
+
+      {rowErrors.length > 0 && (
+        <div className="overflow-x-auto rounded-md border border-destructive/20">
+          <table className="w-full text-left text-sm" aria-label="CSV import row errors">
+            <caption className="sr-only">CSV import validation errors</caption>
+            <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+              <tr><th scope="col" className="px-3 py-2">Row</th><th scope="col" className="px-3 py-2">Column</th><th scope="col" className="px-3 py-2">Problem</th></tr>
+            </thead>
+            <tbody>
+              {rowErrors.map((error, index) => (
+                <tr key={`${error.row}-${error.column}-${index}`} className="border-t border-border">
+                  <td className="px-3 py-2 font-mono">{error.row || "—"}</td>
+                  <td className="px-3 py-2 font-mono">{error.column}</td>
+                  <td className="px-3 py-2">{error.message}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <Button type="button" onClick={upload} disabled={!file || isReading || importMutation.isPending} className="w-full sm:w-auto">
+        {isReading ? "Reading file..." : importMutation.isPending ? "Importing..." : "Import draft questions"}
+      </Button>
+    </section>
   );
 }
 

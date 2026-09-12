@@ -306,6 +306,32 @@ export interface QuestionWriteRequest {
   sourceMetadata: QuestionWriteRequestSourceMetadataItem[];
 }
 
+export interface QuestionCsvImportRequest {
+  /** @minLength 1 */
+  filename: string;
+  /** Raw UTF-8 CSV text. The server enforces a 2 MiB limit. */
+  csv: string;
+}
+
+export interface QuestionCsvImportResponse {
+  /** @minimum 1 */
+  importedCount: number;
+  /** @minItems 1 */
+  questionIds: string[];
+}
+
+export interface QuestionCsvImportRowError {
+  /** @minimum 0 */
+  row: number;
+  column: string;
+  message: string;
+}
+
+export interface QuestionCsvImportError {
+  error: string;
+  rowErrors: QuestionCsvImportRowError[];
+}
+
 export type AdminQuestionSourceMetadataItem = {
   title: string;
   url?: string;
@@ -696,4 +722,3 @@ limit?: number;
  */
 offset?: number;
 };
-// generated output

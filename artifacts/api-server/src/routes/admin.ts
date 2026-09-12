@@ -43,6 +43,8 @@ import {
   SetPermissionOverrideBody,
   ClearPermissionTemplateParams,
   ClearPermissionOverrideParams,
+  ImportAdminQuestionsCsvBody,
+  ImportAdminQuestionsCsvResponse,
 } from "@workspace/api-zod";
 import {
   questionAudiences,
@@ -59,16 +61,23 @@ import {
   permissionTemplates,
   userPermissionTemplates,
   userPermissionOverrides,
+  taxonomies,
 } from "@workspace/db/schema";
 import { getOwner, requireAdmin, requireReviewer, requirePermission, requireSuperAdmin } from "../middlewares/auth";
 import { csrfProtection } from "../lib/security";
 import { writeAuditEvent } from "../lib/audit";
 import { getPermissionState, isPermission, PERMISSIONS } from "../lib/permissions";
+import { CSV_IMPORT_MAX_BYTES, parseQuestionCsv } from "../lib/question-csv";
+import type { ImportRowError, QuestionInput } from "../lib/question-csv";
 
 const router: IRouter = Router();
 
 function badRequest(res: Response, message: string) {
   res.status(400).json({ code: "BAD_REQUEST", message });
+}
+
+function importErrorResponse(res: Response, error: string, rowErrors: ImportRowError[]) {
+  return res.status(400).json({ error, rowErrors });
 }
 
 async function adminQuestion(questionId: string) {
@@ -102,67 +111,70 @@ function validateChoices(choices: Array<{ isCorrect: boolean }>) {
   return choices.filter((choice) => choice.isCorrect).length === 1;
 }
 
-async function insertQuestionVersion(
-  input: {
-    categoryId?: string;
-    difficultyId?: string;
-    audienceIds?: string[];
-    prompt: string;
-    explanation: string;
-    type?: "multiple_choice" | "true_false";
-    points?: number;
-    choices: Array<{ label: string; position: number; isCorrect: boolean }>;
-    sourceMetadata: Array<{ title: string; url?: string }>;
-  },
+type QuestionTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function insertQuestionVersionInTransaction(
+  tx: QuestionTransaction,
+  input: QuestionInput,
   ownerId: string,
   status: "draft" | "pending_review",
-  generationMetadata?: { provider: string; model: string; promptVersion: string },
+  generationMetadata?: { provider: string; model: string; promptVersion: string; runId?: string },
 ) {
-  return db.transaction(async (tx) => {
-    const [question] = await tx
-      .insert(questions)
-      .values({ categoryId: input.categoryId, difficultyId: input.difficultyId, status, createdBy: ownerId })
-      .returning();
-    if (!question) throw new Error("Question insert did not return a row");
-    const [version] = await tx
-      .insert(questionVersions)
-      .values({
+  if (!validateChoices(input.choices)) {
+    throw new Error("Question must have exactly one correct choice");
+  }
+  const [question] = await tx
+    .insert(questions)
+    .values({ categoryId: input.categoryId, difficultyId: input.difficultyId, status, createdBy: ownerId })
+    .returning();
+  if (!question) throw new Error("Question insert did not return a row");
+  const [version] = await tx
+    .insert(questionVersions)
+    .values({
+      questionId: question.id,
+      version: 1,
+      prompt: input.prompt,
+      explanation: input.explanation,
+      type: input.type,
+      points: input.points,
+      sourceMetadata: input.sourceMetadata,
+      createdBy: ownerId,
+      generationMetadata,
+    })
+    .returning();
+  if (!version) throw new Error("Question version insert did not return a row");
+  await tx
+    .update(questions)
+    .set({ currentVersionId: version.id, updatedAt: new Date() })
+    .where(eq(questions.id, question.id));
+  await tx.insert(questionChoices).values(
+    input.choices.map((choice) => ({ ...choice, versionId: version.id })),
+  );
+  if (input.audienceIds?.length) {
+    await tx.insert(questionAudiences).values(
+      input.audienceIds.map((audienceId) => ({
         questionId: question.id,
-        version: 1,
-        prompt: input.prompt,
-        explanation: input.explanation,
-        type: input.type,
-        points: input.points,
-        sourceMetadata: input.sourceMetadata,
-        createdBy: ownerId,
-        generationMetadata,
-      })
-      .returning();
-    if (!version) throw new Error("Question version insert did not return a row");
-    await tx
-      .update(questions)
-      .set({ currentVersionId: version.id, updatedAt: new Date() })
-      .where(eq(questions.id, question.id));
-    await tx.insert(questionChoices).values(
-      input.choices.map((choice) => ({ ...choice, versionId: version.id })),
+        audienceId,
+      })),
     );
-    if (input.audienceIds?.length) {
-      await tx.insert(questionAudiences).values(
-        input.audienceIds.map((audienceId) => ({
-          questionId: question.id,
-          audienceId,
-        })),
-      );
-    }
-    await writeAuditEvent(tx, {
-      actorId: ownerId,
-      action: "question_created",
-      entityType: "question",
-      entityId: question.id,
-      metadata: { status },
-    });
-    return question.id;
+  }
+  await writeAuditEvent(tx, {
+    actorId: ownerId,
+    action: "question_created",
+    entityType: "question",
+    entityId: question.id,
+    metadata: { status },
   });
+  return question.id;
+}
+
+async function insertQuestionVersion(
+  input: QuestionInput,
+  ownerId: string,
+  status: "draft" | "pending_review",
+  generationMetadata?: { provider: string; model: string; promptVersion: string; runId?: string },
+) {
+  return db.transaction((tx) => insertQuestionVersionInTransaction(tx, input, ownerId, status, generationMetadata));
 }
 
 router.use("/admin", requireReviewer);
@@ -546,6 +558,62 @@ router.post("/admin/quiz/questions", requirePermission("content.manage"), csrfPr
   }
 });
 
+router.post("/admin/quiz/questions/import-csv", requirePermission("content.manage"), csrfProtection, async (req, res, next) => {
+  try {
+    const ownerId = getOwner(res).userId;
+    if (!ownerId) return res.status(401).json({ code: "UNAUTHORIZED", message: "Sign-in required" });
+    const body = ImportAdminQuestionsCsvBody.safeParse(req.body);
+    if (!body.success || !body.data.filename.trim()) {
+      return importErrorResponse(res, "Invalid CSV import request", [{ row: 0, column: "csv", message: "CSV text and filename are required" }]);
+    }
+    if (!/\.csv$/i.test(body.data.filename)) {
+      return importErrorResponse(res, "Invalid CSV import request", [{ row: 0, column: "filename", message: "Filename must end in .csv" }]);
+    }
+    if (Buffer.byteLength(body.data.csv, "utf8") > CSV_IMPORT_MAX_BYTES) {
+      return importErrorResponse(res, "CSV file is too large", [{
+        row: 0,
+        column: "csv",
+        message: "CSV files must be 2 MiB or smaller",
+      }]);
+    }
+    const parsed = parseQuestionCsv(body.data.csv);
+    if (parsed.rowErrors.length) return importErrorResponse(res, "CSV validation failed", parsed.rowErrors);
+
+    const uniqueTaxonomyIds = [...new Set(parsed.taxonomyRefs.map((ref) => ref.id))];
+    if (uniqueTaxonomyIds.length) {
+      const existing = await db
+        .select({ id: taxonomies.id, kind: taxonomies.kind })
+        .from(taxonomies)
+        .where(inArray(taxonomies.id, uniqueTaxonomyIds));
+      const existingById = new Map(existing.map((taxonomy) => [taxonomy.id, taxonomy.kind]));
+      for (const ref of parsed.taxonomyRefs) {
+        const actualKind = existingById.get(ref.id);
+        if (!actualKind) {
+          parsed.rowErrors.push({ row: ref.row, column: ref.column, message: "Taxonomy ID does not exist" });
+        } else if (actualKind !== ref.kind) {
+          parsed.rowErrors.push({
+            row: ref.row,
+            column: ref.column,
+            message: `Taxonomy ID must reference a ${ref.kind} taxonomy`,
+          });
+        }
+      }
+      if (parsed.rowErrors.length) return importErrorResponse(res, "CSV validation failed", parsed.rowErrors);
+    }
+
+    const questionIds = await db.transaction(async (tx) => {
+      const ids: string[] = [];
+      for (const input of parsed.inputs) {
+        ids.push(await insertQuestionVersionInTransaction(tx, input, ownerId, "draft"));
+      }
+      return ids;
+    });
+    return res.status(201).json(ImportAdminQuestionsCsvResponse.parse({ importedCount: questionIds.length, questionIds }));
+  } catch (error) {
+    return next(error);
+  }
+});
+
 router.patch("/admin/quiz/questions/:questionId", requirePermission("content.manage"), csrfProtection, async (req, res, next) => {
   try {
     const params = UpdateAdminQuestionParams.safeParse(req.params);
@@ -849,7 +917,12 @@ router.post("/admin/quiz/generation-runs", requireAdmin, csrfProtection, async (
         .returning();
       if (!run) throw new Error("Generation run insert did not return a row");
       for (const input of parsed.data.questions) {
-        await insertQuestionVersionInTransaction(tx, input, ownerId, run.id, parsed.data);
+        await insertQuestionVersionInTransaction(tx, input, ownerId, "pending_review", {
+          provider: parsed.data.provider,
+          model: parsed.data.model,
+          promptVersion: parsed.data.promptVersion,
+          runId: run.id,
+        });
       }
       await writeAuditEvent(tx, {
         actorId: ownerId,
@@ -872,50 +945,6 @@ router.post("/admin/quiz/generation-runs", requireAdmin, csrfProtection, async (
     next(error);
   }
 });
-
-async function insertQuestionVersionInTransaction(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  input: {
-    categoryId?: string;
-    difficultyId?: string;
-    audienceIds?: string[];
-    prompt: string;
-    explanation: string;
-    type?: "multiple_choice" | "true_false";
-    points?: number;
-    choices: Array<{ label: string; position: number; isCorrect: boolean }>;
-    sourceMetadata: Array<{ title: string; url?: string }>;
-  },
-  ownerId: string,
-  runId: string,
-  run: { provider: string; model: string; promptVersion: string },
-) {
-  if (!validateChoices(input.choices)) throw new Error("Generated question has invalid answer cardinality");
-  const [question] = await tx.insert(questions).values({
-    categoryId: input.categoryId,
-    difficultyId: input.difficultyId,
-    status: "pending_review",
-    createdBy: ownerId,
-  }).returning();
-  if (!question) throw new Error("Generated question insert did not return a row");
-  const [version] = await tx.insert(questionVersions).values({
-    questionId: question.id,
-    version: 1,
-    prompt: input.prompt,
-    explanation: input.explanation,
-    type: input.type,
-    points: input.points,
-    sourceMetadata: input.sourceMetadata,
-    createdBy: ownerId,
-    generationMetadata: { provider: run.provider, model: run.model, promptVersion: run.promptVersion, runId },
-  }).returning();
-  if (!version) throw new Error("Generated version insert did not return a row");
-  await tx.update(questions).set({ currentVersionId: version.id }).where(eq(questions.id, question.id));
-  await tx.insert(questionChoices).values(input.choices.map((choice) => ({ ...choice, versionId: version.id })));
-  if (input.audienceIds?.length) {
-    await tx.insert(questionAudiences).values(input.audienceIds.map((audienceId) => ({ questionId: question.id, audienceId })));
-  }
-}
 
 router.get("/admin/quiz/analytics", requireAdmin, async (_req, res, next) => {
   try {

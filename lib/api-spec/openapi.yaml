@@ -395,6 +395,33 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /admin/quiz/questions/import-csv:
+    post:
+      operationId: importAdminQuestionsCsv
+      tags: [admin]
+      summary: Create draft questions from a validated CSV file
+      description: Create-only, all-or-nothing import. The server parses and validates the raw CSV text authoritatively.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuestionCsvImportRequest"
+      responses:
+        "201":
+          description: Draft questions created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuestionCsvImportResponse"
+        "400":
+          description: CSV or row validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuestionCsvImportError"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /admin/quiz/questions/{questionId}/reviews:
     post:
       operationId: reviewQuestion
@@ -1231,6 +1258,50 @@ components:
               url:
                 type: string
                 format: uri
+    QuestionCsvImportRequest:
+      type: object
+      required: [filename, csv]
+      properties:
+        filename:
+          type: string
+          minLength: 1
+        csv:
+          type: string
+          description: Raw UTF-8 CSV text. The server enforces a 2 MiB limit.
+    QuestionCsvImportResponse:
+      type: object
+      required: [importedCount, questionIds]
+      properties:
+        importedCount:
+          type: integer
+          minimum: 1
+        questionIds:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            format: uuid
+    QuestionCsvImportRowError:
+      type: object
+      required: [row, column, message]
+      properties:
+        row:
+          type: integer
+          minimum: 0
+        column:
+          type: string
+        message:
+          type: string
+    QuestionCsvImportError:
+      type: object
+      required: [error, rowErrors]
+      properties:
+        error:
+          type: string
+        rowErrors:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuestionCsvImportRowError"
     AdminQuestion:
       type: object
       required: [id, status, versionId, version, prompt, explanation, points, choices, sourceMetadata]

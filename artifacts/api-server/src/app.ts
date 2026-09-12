@@ -50,6 +50,11 @@ export function createApp(options: AppOptions = {}): Express {
     }),
   );
   app.use(cookieParser());
+  // JSON.stringify can expand a decoded 2 MiB CSV substantially when it
+  // contains quotes, backslashes, or control characters. Keep this larger
+  // parser scoped to the import endpoint; all other JSON remains capped at
+  // the original 100 KiB limit.
+  app.use("/api/admin/quiz/questions/import-csv", express.json({ limit: "13mb" }));
   app.use(express.json({ limit: "100kb" }));
   app.use(express.urlencoded({ extended: true }));
   app.use((_req, res, next) => {
