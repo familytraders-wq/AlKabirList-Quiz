@@ -40,6 +40,23 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
       },
       isLoading: false,
     }),
+    useGetQuizConfig: () => ({
+      data: {
+        featureName: "AlKabir Islamic Challenge",
+        dailyTimezone: "UTC",
+        categories: [
+          { id: "category-seerah", slug: "seerah", label: "Seerah" },
+          { id: "category-quran", slug: "quran", label: "Qur'an" },
+        ],
+        difficulties: [
+          { id: "difficulty-easy", slug: "easy", label: "Easy" },
+          { id: "difficulty-hard", slug: "hard", label: "Hard" },
+        ],
+        audiences: [],
+      },
+      isLoading: false,
+      isError: false,
+    }),
     useListAdminQuestions: ({ status }: any) => {
       if (status === "approved") return { data: { items: [] }, isLoading: false };
       if (status === "draft") return {
@@ -49,6 +66,9 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
             versionId: "v-1",
             version: 1,
             status: "draft",
+            categoryId: "category-seerah",
+            difficultyId: "difficulty-easy",
+            audienceIds: [],
             prompt: "Test Question",
             explanation: "",
             points: 15,
@@ -65,6 +85,9 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
             versionId: "v-2",
             version: 1,
             status: "pending_review",
+            categoryId: null,
+            difficultyId: null,
+            audienceIds: [],
             prompt: "Pending Question",
             explanation: "",
             points: 10,
@@ -224,7 +247,7 @@ describe("AdminContent", () => {
     expect(mockInvalidateQueries).toHaveBeenCalled();
   });
 
-  it("initializes edit form with existing points and preserves them on save", async () => {
+  it("initializes and saves category, difficulty, and points when editing a draft", async () => {
     const queryClient = new QueryClient();
     render(
       <QueryClientProvider client={queryClient}>
@@ -243,10 +266,18 @@ describe("AdminContent", () => {
     // Verify points are initialized to 15
     const pointsInput = await screen.findByLabelText("Points");
     expect(pointsInput).toHaveValue(15);
+    const categorySelect = await screen.findByLabelText("Category");
+    const difficultySelect = await screen.findByLabelText("Difficulty");
+    expect(categorySelect).toHaveValue("category-seerah");
+    expect(difficultySelect).toHaveValue("difficulty-easy");
+    expect(screen.getByRole("option", { name: "Qur'an" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Hard" })).toBeInTheDocument();
 
-    // Change a text field to verify payload preserves points
+    // Change fields to verify taxonomy IDs and points are preserved in the payload.
     const promptInput = await screen.findByPlaceholderText("e.g., Which prophet built the Ark?");
     fireEvent.change(promptInput, { target: { value: "Updated prompt" } });
+    fireEvent.change(categorySelect, { target: { value: "category-quran" } });
+    fireEvent.change(difficultySelect, { target: { value: "difficulty-hard" } });
 
     mockUpdateMutate.mockImplementationOnce((args, options) => {
       options.onSuccess();
@@ -261,6 +292,8 @@ describe("AdminContent", () => {
         questionId: "q-1",
         data: expect.objectContaining({
           prompt: "Updated prompt",
+          categoryId: "category-quran",
+          difficultyId: "difficulty-hard",
           points: 15
         })
       },
