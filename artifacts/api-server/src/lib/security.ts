@@ -103,6 +103,8 @@ export type AnonymousSessionCleanupResult = {
   sessionsDeleted: number;
 };
 
+type AnonymousSessionCleanup = () => Promise<AnonymousSessionCleanupResult>;
+
 /**
  * Remove abandoned guest attempts after their session can no longer be used.
  *
@@ -180,17 +182,20 @@ export async function cleanupAnonymousSessions(
   });
 }
 
-function maybeCleanupAnonymousSessions(): void {
+function maybeCleanupAnonymousSessions(
+  intervalMs = ANONYMOUS_SESSION_CLEANUP_INTERVAL_MS,
+  cleanup: AnonymousSessionCleanup = cleanupAnonymousSessions,
+): void {
   const now = Date.now();
   if (
     anonymousSessionCleanupInFlight ||
-    now - lastAnonymousSessionCleanupAt < ANONYMOUS_SESSION_CLEANUP_INTERVAL_MS
+    now - lastAnonymousSessionCleanupAt < intervalMs
   ) {
     return;
   }
 
   lastAnonymousSessionCleanupAt = now;
-  anonymousSessionCleanupInFlight = cleanupAnonymousSessions()
+  anonymousSessionCleanupInFlight = cleanup()
     .then(() => undefined)
     .catch((error) => {
       logger.warn({ err: error }, "Anonymous session cleanup failed");
@@ -198,6 +203,56 @@ function maybeCleanupAnonymousSessions(): void {
     .finally(() => {
       anonymousSessionCleanupInFlight = undefined;
     });
+}
+
+export type AnonymousSessionCleanupWorker = {
+  stop: () => Promise<void>;
+};
+
+export type AnonymousSessionCleanupWorkerOptions = {
+  intervalMs?: number;
+  runImmediately?: boolean;
+  cleanup?: AnonymousSessionCleanup;
+};
+
+/**
+ * Run guest-session retention independently of request traffic.
+ *
+ * The timer is unref'ed so a caller that forgets to stop it cannot keep a
+ * short-lived process or test alive. stop() still clears the timer and waits
+ * for any cleanup already in progress, which lets the API shut down without
+ * abandoning a transaction.
+ */
+export function startAnonymousSessionCleanupWorker(
+  options: AnonymousSessionCleanupWorkerOptions = {},
+): AnonymousSessionCleanupWorker {
+  const intervalMs =
+    options.intervalMs ?? ANONYMOUS_SESSION_CLEANUP_INTERVAL_MS;
+  if (!Number.isFinite(intervalMs) || intervalMs <= 0) {
+    throw new Error("Anonymous session cleanup interval must be positive");
+  }
+
+  let stopped = false;
+  const run = () => {
+    if (!stopped) {
+      maybeCleanupAnonymousSessions(intervalMs, options.cleanup);
+    }
+  };
+
+  const timer = setInterval(run, intervalMs);
+  timer.unref();
+  if (options.runImmediately ?? true) {
+    run();
+  }
+
+  return {
+    async stop() {
+      if (stopped) return;
+      stopped = true;
+      clearInterval(timer);
+      await anonymousSessionCleanupInFlight;
+    },
+  };
 }
 
 export async function ensureSecurityCookies(

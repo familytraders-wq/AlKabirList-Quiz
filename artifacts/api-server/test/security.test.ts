@@ -14,6 +14,7 @@ const {
   exactOriginCors,
   hashAnonymousToken,
   isExactAllowedOrigin,
+  startAnonymousSessionCleanupWorker,
 } = await import("../src/lib/security.ts");
 
 test("anonymous owner values are opaque and stored as keyed hashes", () => {
@@ -121,6 +122,56 @@ test("state-changing requests reject an unexpected origin before CSRF comparison
 
   assert.equal(response.statusCode, 403);
   assert.deepEqual(response.body, { error: "Origin is not allowed" });
+});
+
+test("anonymous session cleanup worker retries after a failed run", async () => {
+  let runs = 0;
+  const worker = startAnonymousSessionCleanupWorker({
+    intervalMs: 10,
+    cleanup: async () => {
+      runs += 1;
+      if (runs === 1) {
+        throw new Error("temporary cleanup failure");
+      }
+      return { sessionsScanned: 0, attemptsDeleted: 0, sessionsDeleted: 0 };
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 35));
+  await worker.stop();
+
+  assert.ok(runs >= 2);
+});
+
+test("stopping the cleanup worker waits for active cleanup and prevents future runs", async () => {
+  let resolveCleanup!: () => void;
+  let runs = 0;
+  const cleanupFinished = new Promise<void>((resolve) => {
+    resolveCleanup = resolve;
+  });
+  const worker = startAnonymousSessionCleanupWorker({
+    intervalMs: 10,
+    cleanup: async () => {
+      runs += 1;
+      await cleanupFinished;
+      return { sessionsScanned: 0, attemptsDeleted: 0, sessionsDeleted: 0 };
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const stopPromise = worker.stop();
+  let stopped = false;
+  void stopPromise.then(() => {
+    stopped = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(stopped, false);
+
+  resolveCleanup();
+  await stopPromise;
+  const runsAtStop = runs;
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(runs, runsAtStop);
 });
 
 test("matching origin and double-submit CSRF token are accepted", () => {
