@@ -336,42 +336,94 @@ after(async () => {
         fixture.pendingQuizId,
       ]))
   ).map((attempt) => attempt.id);
-    const started = await request(
-      "/quiz/attempts",
-      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
-      undefined,
-      jar,
-    );
-    assert.equal(started.status, 201);
-    const answered = await request(`/quiz/attempts/${attemptId}/answers`, {
-      method: "POST",
-      body: JSON.stringify({
-        versionId: fixture.approvedVersionId,
-        choiceId: fixture.correctChoiceId,
-        idempotencyKey: `restart-answer-${randomUUID()}`,
-      }),
-    }, member);
-    assert.equal(answered.status, 200, JSON.stringify(answered.body));
-    assert.deepEqual(answered.body, {
-      versionId: fixture.approvedVersionId,
-      choiceId: fixture.correctChoiceId,
-      isCorrect: true,
-      awardedPoints: 25,
-      explanation: "Fixture explanation",
-      sources: [],
-    });
+  if (attemptIds.length) {
+    await db.delete(dailyRewards).where(eq(dailyRewards.memberId, member.userId));
+    await db.delete(dailyCompletions).where(eq(dailyCompletions.memberId, member.userId));
+    await db.delete(rewardLedger).where(inArray(rewardLedger.attemptId, attemptIds));
+    await db.delete(attemptAnswers).where(inArray(attemptAnswers.attemptId, attemptIds));
+    await db.delete(quizAttempts).where(inArray(quizAttempts.id, attemptIds));
+  }
+  await db.delete(reviewEvents).where(eq(reviewEvents.questionId, fixture.reviewQuestionId));
+  if (scheduledQuestionIds.length) {
+    await db.delete(reviewEvents).where(inArray(reviewEvents.questionId, scheduledQuestionIds));
+  }
+  await db.delete(operatorAuditEvents).where(and(
+    eq(operatorAuditEvents.actorId, reviewer.userId),
+    inArray(operatorAuditEvents.entityId, [
+      fixture.approvedQuestionId,
+      fixture.draftQuestionId,
+      fixture.pendingQuestionId,
+      fixture.reviewQuestionId,
+      ...scheduledQuestionIds,
+      fixture.approvedQuizId,
+      fixture.draftQuizId,
+      fixture.pendingQuizId,
+      fixture.dailyQuizId,
+      ...scheduledQuizIds,
+    ]),
+  ));
+  await db.delete(guestProgressLinks).where(
+    inArray(guestProgressLinks.userId, [member.userId, otherMember.userId]),
+  );
+  await db.delete(quizQuestions).where(inArray(quizQuestions.quizId, [
+    fixture.approvedQuizId,
+    fixture.dailyQuizId,
+    fixture.draftQuizId,
+    fixture.pendingQuizId,
+  ]));
+  await db.delete(quizzes).where(inArray(quizzes.id, [
+    fixture.approvedQuizId,
+    fixture.dailyQuizId,
+    fixture.draftQuizId,
+    fixture.pendingQuizId,
+  ]));
+  if (scheduledQuizIds.length) await db.delete(quizzes).where(inArray(quizzes.id, scheduledQuizIds));
+  if (scheduledQuestionIds.length) {
+    await db.delete(questionChoices).where(inArray(questionChoices.versionId, scheduledVersionIds));
+    await db.delete(questionVersions).where(inArray(questionVersions.id, scheduledVersionIds));
+    await db.delete(questions).where(inArray(questions.id, scheduledQuestionIds));
+  }
+  if (csvTaxonomyIds.length) await db.delete(taxonomies).where(inArray(taxonomies.id, csvTaxonomyIds));
+  await db.delete(questionChoices).where(inArray(questionChoices.versionId, [
+    fixture.approvedVersionId,
+    fixture.draftVersionId,
+    fixture.pendingVersionId,
+    fixture.reviewVersionId,
+  ]));
+  await db.delete(questionVersions).where(inArray(questionVersions.id, [
+    fixture.approvedVersionId,
+    fixture.draftVersionId,
+    fixture.pendingVersionId,
+    fixture.reviewVersionId,
+  ]));
+  await db.delete(questions).where(inArray(questions.id, [
+    fixture.approvedQuestionId,
+    fixture.draftQuestionId,
+    fixture.pendingQuestionId,
+    fixture.reviewQuestionId,
+  ]));
+  await db.delete(users).where(inArray(users.id, [
+    member.userId,
+    otherMember.userId,
+    reviewer.userId,
+  ]));
+  await pool.end();
   });
 
+describe("quiz submission safety", () => {
   it("redacts malformed legacy source metadata in completion and result responses", async () => {
     const started = await request(
       "/quiz/attempts",
-      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
-      undefined,
-      jar,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `legacy-sources-${randomUUID()}`,
+        }),
+      },
+      member,
     );
     assert.equal(started.status, 201);
-    assert.ok(jar.get("__Host-alkabir_anon"));
-    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
     const answered = await request(`/quiz/attempts/${attemptId}/answers`, {
       method: "POST",
@@ -386,25 +438,9 @@ after(async () => {
     const completed = await request(`/quiz/attempts/${attemptId}/complete`, {
       method: "POST",
     }, member);
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-      const result = await request(`/quiz/results/${attemptId}`, {}, member);
+    assert.equal(completed.status, 200, JSON.stringify(completed.body));
+    assert.deepEqual(completed.body.answers[0].sources, []);
+    const result = await request(`/quiz/results/${attemptId}`, {}, member);
     assert.equal(result.status, 200);
     assert.deepEqual(result.body.answers[0].sources, []);
     await db.update(questionVersions)
@@ -415,13 +451,16 @@ after(async () => {
   it("does not finalize an attempt until every question is answered", async () => {
     const started = await request(
       "/quiz/attempts",
-      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
-      undefined,
-      jar,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `incomplete-${randomUUID()}`,
+        }),
+      },
+      member,
     );
     assert.equal(started.status, 201);
-    assert.ok(jar.get("__Host-alkabir_anon"));
-    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
 
     const incomplete = await request(
@@ -445,34 +484,101 @@ after(async () => {
     const completed = await request(`/quiz/attempts/${attemptId}/complete`, {
       method: "POST",
     }, member);
+    assert.equal(completed.status, 200);
+    assert.equal(completed.body.status, "completed");
+    assert.equal(completed.body.score, 25);
+  });
 
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
+  it("keeps answer and completion races consistent at the attempt boundary", async () => {
     const started = await request(
       "/quiz/attempts",
-      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
-      undefined,
-      jar,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `race-${randomUUID()}`,
+        }),
+      },
+      member,
     );
     assert.equal(started.status, 201);
-    assert.ok(jar.get("__Host-alkabir_anon"));
-    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
+
+    const initialAnswer = await request(
+      `/quiz/attempts/${attemptId}/answers`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          versionId: fixture.approvedVersionId,
+          choiceId: fixture.correctChoiceId,
+          idempotencyKey: `race-initial-answer-${randomUUID()}`,
+        }),
+      },
+      member,
+    );
+    assert.equal(initialAnswer.status, 200);
+
+    const [lateAnswerResponse, completionResponse] = await Promise.all([
+      request(
+        `/quiz/attempts/${attemptId}/answers`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            versionId: fixture.approvedVersionId,
+            choiceId: fixture.correctChoiceId,
+            idempotencyKey: `race-answer-${randomUUID()}`,
+          }),
+        },
+        member,
+      ),
+      request(
+        `/quiz/attempts/${attemptId}/complete`,
+        { method: "POST" },
+        member,
+      ),
+    ]);
+
+    assert.ok([200, 409].includes(lateAnswerResponse.status));
+    assert.equal(completionResponse.status, 200);
+    assert.equal(completionResponse.body.score, 25);
+    if (lateAnswerResponse.status === 409) {
+      assert.equal(lateAnswerResponse.body.code, "ATTEMPT_COMPLETED");
+    }
+
+    const result = await request(`/quiz/results/${attemptId}`, {}, member);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.status, "completed");
+    assert.equal(result.body.answers.length, 1);
+  });
+
+  it("keeps guest answer and completion races at the published score boundary", async () => {
+    const guestJar = new CookieJar();
+    let attemptId: string | undefined;
+    let anonymousSessionId: string | undefined;
+    try {
+      const started = await request(
+        "/quiz/attempts",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            quizId: fixture.approvedQuizId,
+            idempotencyKey: `guest-race-${randomUUID()}`,
+          }),
+        },
+        undefined,
+        guestJar,
+      );
+      assert.equal(started.status, 201, JSON.stringify(started.body));
+      attemptId = started.body.attemptId as string;
+      const anonymousCookie = guestJar.get("__Host-alkabir_anon");
+      assert.ok(anonymousCookie);
+      assert.ok(guestJar.get("alkabir_csrf"));
+      const [guestAttempt] = await db
+        .select({ anonymousSessionId: quizAttempts.anonymousSessionId })
+        .from(quizAttempts)
+        .where(eq(quizAttempts.id, attemptId));
+      anonymousSessionId = guestAttempt?.anonymousSessionId ?? undefined;
+
       const initialAnswer = await request(
         `/quiz/attempts/${attemptId}/answers`,
         {
@@ -480,10 +586,11 @@ after(async () => {
           body: JSON.stringify({
             versionId: fixture.approvedVersionId,
             choiceId: fixture.correctChoiceId,
-            idempotencyKey: `race-initial-answer-${randomUUID()}`,
+            idempotencyKey: `guest-initial-answer-${randomUUID()}`,
           }),
         },
-        member,
+        undefined,
+        guestJar,
       );
       assert.equal(initialAnswer.status, 200);
 
@@ -493,45 +600,59 @@ after(async () => {
           {
             method: "POST",
             body: JSON.stringify({
-              versionId: raceVersionId,
-              choiceId: raceChoiceId,
-              idempotencyKey: `race-answer-${randomUUID()}`,
+              versionId: fixture.approvedVersionId,
+              choiceId: fixture.correctChoiceId,
+              idempotencyKey: `guest-late-answer-${randomUUID()}`,
             }),
           },
-          member,
+          undefined,
+          guestJar,
         ),
         request(
           `/quiz/attempts/${attemptId}/complete`,
           { method: "POST" },
-          member,
+          undefined,
+          guestJar,
         ),
       ]);
 
-        const retry = await request(
-          `/quiz/attempts/${attemptId}/complete`,
-          { method: "POST" },
-          member,
-        );
-      const result = await request(`/quiz/results/${attemptId}`, {}, member);
-      assert.equal(result.status, 200);
-      assert.equal(result.body.status, "completed", JSON.stringify(result.body));
-      assert.equal(result.body.answers.length, lateAnswerResponse.status === 200 ? 2 : 1);
-      assert.equal(result.body.score, lateAnswerResponse.status === 200 ? 50 : 25);
-      if (completionResponse.status === 409) {
-        assert.equal(result.body.answers.length, 2);
-        assert.equal(result.body.score, 50);
+      assert.ok([200, 409].includes(lateAnswerResponse.status));
+      assert.equal(completionResponse.status, 200, JSON.stringify(completionResponse.body));
+      assert.equal(completionResponse.body.status, "completed");
+      assert.equal(completionResponse.body.answers.length, 1);
+      assert.equal(completionResponse.body.score, 25);
+      if (lateAnswerResponse.status === 409) {
+        assert.equal(lateAnswerResponse.body.code, "ATTEMPT_COMPLETED");
       }
+
+      const result = await request(`/quiz/results/${attemptId}`, {}, undefined, guestJar);
+      assert.equal(result.status, 200, JSON.stringify(result.body));
+      assert.equal(result.body.status, "completed");
+      assert.equal(result.body.answers.length, 1);
+      assert.equal(result.body.score, 25);
+
+      const storedAnswers = await db
+        .select()
+        .from(attemptAnswers)
+        .where(eq(attemptAnswers.attemptId, attemptId));
+      assert.equal(storedAnswers.length, 1);
+      assert.deepEqual(result.body.answers, [{
+        versionId: storedAnswers[0]?.versionId,
+        choiceId: storedAnswers[0]?.choiceId,
+        isCorrect: storedAnswers[0]?.isCorrect,
+        awardedPoints: storedAnswers[0]?.awardedPoints,
+        explanation: "Fixture explanation",
+        sources: [],
+      }]);
+      assert.equal(storedAnswers[0]?.awardedPoints, result.body.score);
     } finally {
       if (attemptId) {
-        await db.delete(rewardLedger).where(eq(rewardLedger.attemptId, attemptId));
         await db.delete(attemptAnswers).where(eq(attemptAnswers.attemptId, attemptId));
         await db.delete(quizAttempts).where(eq(quizAttempts.id, attemptId));
       }
-      await db.delete(quizQuestions).where(eq(quizQuestions.quizId, raceQuizId));
-      await db.delete(quizzes).where(eq(quizzes.id, raceQuizId));
-      await db.delete(questionChoices).where(eq(questionChoices.versionId, raceVersionId));
-      await db.delete(questionVersions).where(eq(questionVersions.id, raceVersionId));
-      await db.delete(questions).where(eq(questions.id, raceQuestionId));
+      if (anonymousSessionId) {
+        await db.delete(anonymousSessions).where(eq(anonymousSessions.id, anonymousSessionId));
+      }
     }
   });
 
@@ -569,10 +690,15 @@ after(async () => {
       }),
     );
 
-    const completionResponses = await Promise.all([
-      request(`/quiz/attempts/${attemptId}/complete`, { method: "POST" }, member),
-      request(`/quiz/attempts/${attemptId}/complete`, { method: "POST" }, member),
-    ]);
+    const completionResponses = await Promise.all(
+      attempts.map((attemptId) =>
+        request(
+          `/quiz/attempts/${attemptId}/complete`,
+          { method: "POST" },
+          member,
+        ),
+      ),
+    );
     assert.deepEqual(
       completionResponses.map((response) => response.status),
       [200, 200],
@@ -589,10 +715,10 @@ after(async () => {
       );
     const rewards = await db
       .select()
-      .from(rewardLedger)
+      .from(dailyRewards)
       .where(and(
-        eq(rewardLedger.userId, member.userId),
-        eq(rewardLedger.attemptId, attemptId),
+        eq(dailyRewards.memberId, member.userId),
+        eq(dailyRewards.challengeDate, "2026-09-11"),
       ));
     const ledgerEntries = await db
       .select()
@@ -619,13 +745,16 @@ after(async () => {
   it("returns the original answer under duplicate requests and awards points once", async () => {
     const started = await request(
       "/quiz/attempts",
-      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
-      undefined,
-      jar,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `start-${randomUUID()}`,
+        }),
+      },
+      member,
     );
     assert.equal(started.status, 201);
-    assert.ok(jar.get("__Host-alkabir_anon"));
-    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
 
     const answerBody = {
@@ -686,13 +815,16 @@ after(async () => {
   it("recovers a saved completed score and reward after the result service restarts", async () => {
     const started = await request(
       "/quiz/attempts",
-      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
-      undefined,
-      jar,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `restart-${randomUUID()}`,
+        }),
+      },
+      member,
     );
     assert.equal(started.status, 201);
-    assert.ok(jar.get("__Host-alkabir_anon"));
-    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
 
     const answered = await request(`/quiz/attempts/${attemptId}/answers`, {
@@ -708,24 +840,14 @@ after(async () => {
     const completed = await request(`/quiz/attempts/${attemptId}/complete`, {
       method: "POST",
     }, member);
+    assert.equal(completed.status, 200);
+    assert.equal(completed.body.score, 25);
+    assert.equal(completed.body.rewardPoints, 25);
 
-    const raceQuizId = randomUUID();
+    await stopServer();
+    await assert.rejects(() => request(`/quiz/results/${attemptId}`, {}, member));
 
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
-
-    const raceQuizId = randomUUID();
+    await startServer();
     const recovered = await request(`/quiz/results/${attemptId}`, {}, member);
     assert.equal(recovered.status, 200);
     assert.equal(recovered.body.attemptId, attemptId);
@@ -738,23 +860,33 @@ after(async () => {
   it("does not expose an attempt to another member and excludes draft or pending questions", async () => {
     const started = await request(
       "/quiz/attempts",
-      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
-      undefined,
-      jar,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `owner-${randomUUID()}`,
+        }),
+      },
+      member,
     );
     assert.equal(started.status, 201);
-    assert.ok(jar.get("__Host-alkabir_anon"));
-    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
 
     const unauthorized = await request(`/quiz/attempts/${attemptId}`, {}, otherMember);
     assert.equal(unauthorized.status, 404);
 
     for (const quizId of [fixture.draftQuizId, fixture.pendingQuizId]) {
-    const response = await adminMutation("/admin/quiz/questions/import-csv", {
-      method: "POST",
-      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Denied")) }),
-    }, member);
+      const response = await request(
+        "/quiz/attempts",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            quizId,
+            idempotencyKey: `unpublished-${randomUUID()}`,
+          }),
+        },
+        member,
+      );
       assert.equal(response.status, 409);
       assert.equal(response.body.code, "NO_APPROVED_CONTENT");
     }
@@ -804,12 +936,6 @@ after(async () => {
 
   it("links guest progress only after CSRF and explicit confirmation, then rotates access", async () => {
     const jar = new CookieJar();
-
-    const idempotencyKey = `browser-start-retry-${randomUUID()}`;
-
-    const idempotencyKey = `browser-start-retry-${randomUUID()}`;
-
-    const idempotencyKey = `browser-start-retry-${randomUUID()}`;
     const started = await request(
       "/quiz/attempts",
       { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
@@ -879,12 +1005,7 @@ after(async () => {
 
   it("serializes concurrent links and leaves exactly one transfer", async () => {
     const jar = new CookieJar();
-
-    const idempotencyKey = `browser-start-retry-${randomUUID()}`;
-
-    const idempotencyKey = `browser-start-retry-${randomUUID()}`;
-
-    const idempotencyKey = `browser-start-retry-${randomUUID()}`;
+    await request("/auth/me", {}, undefined, jar);
     const started = await request(
       "/quiz/attempts",
       { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
@@ -893,22 +1014,20 @@ after(async () => {
     );
     assert.equal(started.status, 201);
     const csrf = jar.get("alkabir_csrf")!;
-    const [first, second] = await Promise.all([
-      adminMutation("/admin/quiz/questions/import-csv", {
-        method: "POST",
-        body: JSON.stringify({
-          filename: "concurrent-a.csv",
-          csv: csv(row("Concurrent edit A", { 0: questionId, 1: "1" })),
-        }),
-      }, reviewer),
-      adminMutation("/admin/quiz/questions/import-csv", {
-        method: "POST",
-        body: JSON.stringify({
-          filename: "concurrent-b.csv",
-          csv: csv(row("Concurrent edit B", { 0: questionId, 1: "1" })),
-        }),
-      }, reviewer),
-    ]);
+    const [first, second] = await Promise.all(
+      [member, otherMember].map((identity) =>
+        request(
+          "/auth/link-guest-progress",
+          {
+            method: "POST",
+            headers: { Origin: "http://localhost:5173", "x-csrf-token": csrf },
+            body: JSON.stringify({ confirm: true }),
+          },
+          identity,
+          jar.clone(),
+        ),
+      ),
+    );
     assert.deepEqual([first.status, second.status].sort((a, b) => a - b), [200, 404]);
     const transferred = await db.select().from(quizAttempts).where(eq(quizAttempts.id, started.body.attemptId));
     assert.equal(transferred[0]?.anonymousSessionId, null);
@@ -952,12 +1071,7 @@ describe("quiz scheduling operations", () => {
     assert.equal(missingOrigin.status, 403);
 
     const jar = new CookieJar();
-
-    const idempotencyKey = `browser-start-retry-${randomUUID()}`;
-
-    const idempotencyKey = `browser-start-retry-${randomUUID()}`;
-
-    const idempotencyKey = `browser-start-retry-${randomUUID()}`;
+    await request("/auth/me", {}, reviewer, jar);
     const invalidToken = await request("/admin/quiz/quizzes", {
       method: "POST",
       headers: { origin: "http://localhost:5173", "x-csrf-token": "invalid" },
@@ -979,9 +1093,12 @@ describe("quiz scheduling operations", () => {
       body: JSON.stringify(scheduleBody("2099-02-01", [{ versionId: fixture.draftVersionId, points: 10 }])),
     }, reviewer);
     assert.equal(draft.status, 400);
-    const duplicate = await adminMutation("/admin/quiz/questions/import-csv", {
+    const duplicate = await adminMutation("/admin/quiz/quizzes", {
       method: "POST",
-      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Normalize Me"), row(" normalize   me ")) }),
+      body: JSON.stringify(scheduleBody("2099-02-02", [
+        { versionId: fixture.approvedVersionId, points: 10 },
+        { versionId: fixture.approvedVersionId, points: 20 },
+      ])),
     }, reviewer);
     assert.equal(duplicate.status, 400);
   });
@@ -1044,7 +1161,7 @@ describe("quiz scheduling operations", () => {
 
 describe("question review transitions", () => {
   it("submits drafts, approves pending questions, and rejects invalid or stale decisions", async () => {
-    const questionId = initial.body.questionIds[0] as string;
+    const questionId = randomUUID();
     const versionId = randomUUID();
     scheduledQuestionIds.push(questionId);
     scheduledVersionIds.push(versionId);
@@ -1077,12 +1194,9 @@ describe("question review transitions", () => {
     assert.equal(approved.status, 200, JSON.stringify(approved.body));
     assert.equal(approved.body.status, "approved");
 
-    const stale = await adminMutation("/admin/quiz/questions/import-csv", {
+    const stale = await adminMutation(`/admin/quiz/questions/${questionId}/reviews`, {
       method: "POST",
-      body: JSON.stringify({
-        filename: "stale.csv",
-        csv: csv(row("Stale edit", { 0: questionId, 1: "2" }), row(untouchedPrompt)),
-      }),
+      body: JSON.stringify({ expectedStatus: "pending_review", decision: "reject" }),
     }, reviewer);
     assert.equal(stale.status, 409);
     assert.equal(stale.body.code, "STALE_REVIEW");
@@ -1427,39 +1541,8 @@ describe("CSV question imports", () => {
       {},
       member,
     );
-
-    const raceQuestionId = randomUUID();
     assert.equal(denied.status, 403);
   });
 });
 
 const observedStartRequests: unknown[] = [];
-
-    const firstAttempt = await request(
-      "/quiz/attempts",
-      {
-        method: "POST",
-        body: JSON.stringify(requestBody),
-      },
-      member,
-      jar,
-    );
-
-    const requestBody = {
-      quizId: fixture.approvedQuizId,
-      idempotencyKey,
-    };
-
-    const recoveredAttempt = await request(
-      "/quiz/attempts",
-      {
-        method: "POST",
-        body: JSON.stringify(requestBody),
-      },
-      member,
-      jar,
-    );
-
-    const raceVersionId = randomUUID();
-
-    const raceChoiceId = randomUUID();
