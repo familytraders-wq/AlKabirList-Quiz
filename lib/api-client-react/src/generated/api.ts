@@ -1766,8 +1766,8 @@ export const getImportAdminQuestionsCsvUrl = () => {
 }
 
 /**
- * Create-only, all-or-nothing import. The server parses and validates the raw CSV text authoritatively.
- * @summary Create draft questions from a validated CSV file
+ * All-or-nothing import. Blank question_id and expected_version fields create a question; populated fields update the referenced question only when its current version matches.
+ * @summary Create or update draft questions from a validated CSV file
  */
 export const importAdminQuestionsCsv = async (questionCsvImportRequest: QuestionCsvImportRequest, options?: Parameters<typeof customFetch>[1]): Promise<QuestionCsvImportResponse> => {
 
@@ -1833,7 +1833,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ImportAdminQuestionsCsvMutationVariables = {data: BodyType<QuestionCsvImportRequest>}
 
     /**
- * @summary Create draft questions from a validated CSV file
+ * @summary Create or update draft questions from a validated CSV file
  */
 export const useImportAdminQuestionsCsv = <TError = ErrorType<QuestionCsvImportError | ForbiddenResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importAdminQuestionsCsv>>, TError,ImportAdminQuestionsCsvMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -3699,3 +3699,4 @@ export const usePatchMyProfile = <TError = ErrorType<BadRequestResponse | Unauth
       > => {
       return useMutation(getPatchMyProfileMutationOptions(options));
     }
+

@@ -328,6 +328,8 @@ function IntakeView() {
 }
 
 const CSV_TEMPLATE_HEADER = [
+  "question_id",
+  "expected_version",
   "prompt",
   "explanation",
   "type",
@@ -421,7 +423,7 @@ function CsvImportCard() {
         onSuccess: (result) => {
           setFeedback({
             type: "success",
-            text: `${result.importedCount} draft question${result.importedCount === 1 ? "" : "s"} imported successfully.`,
+            text: `${result.importedCount} draft question${result.importedCount === 1 ? "" : "s"} imported successfully (${result.createdCount} created, ${result.updatedCount} updated).`,
           });
           setFile(null);
           setCsvText("");
@@ -433,7 +435,7 @@ function CsvImportCard() {
           setRowErrors(Array.isArray(errors) ? errors : []);
           setFeedback({
             type: "error",
-            text: error?.data?.error ?? error?.response?.data?.error ?? "CSV import failed. No questions were created.",
+            text: error?.data?.error ?? error?.response?.data?.error ?? "CSV import failed. No questions were changed.",
           });
         },
       },
@@ -446,7 +448,7 @@ function CsvImportCard() {
         <div>
           <h2 id="csv-import-heading" className="font-serif text-xl font-medium text-primary">Import questions from CSV</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Imports create new draft questions only. Validation is all-or-nothing: if one row fails, nothing is written.
+            Create new drafts or update existing questions. Validation is all-or-nothing: if one row fails, nothing is written.
           </p>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={downloadTemplate}>Download template</Button>
@@ -479,7 +481,7 @@ function CsvImportCard() {
       </div>
 
       <p className="text-xs leading-relaxed text-muted-foreground">
-        UTF-8 CSV (BOM supported), up to 2 MiB and 50 data rows. Use <code className="rounded bg-muted px-1">true</code> or <code className="rounded bg-muted px-1">false</code> flags, 2–4 choices, and semicolon-delimited audience UUIDs. Quoted commas are supported.
+        UTF-8 CSV (BOM supported), up to 2 MiB and 50 data rows. Leave <code className="rounded bg-muted px-1">question_id</code> and <code className="rounded bg-muted px-1">expected_version</code> blank to create; provide both to update. Updates create a new draft version. Use <code className="rounded bg-muted px-1">true</code> or <code className="rounded bg-muted px-1">false</code> flags, 2–4 choices, and semicolon-delimited audience UUIDs.
       </p>
 
       {feedback && (
@@ -509,7 +511,7 @@ function CsvImportCard() {
       )}
 
       <Button type="button" onClick={upload} disabled={!file || isReading || importMutation.isPending} className="w-full sm:w-auto">
-        {isReading ? "Reading file..." : importMutation.isPending ? "Importing..." : "Import draft questions"}
+        {isReading ? "Reading file..." : importMutation.isPending ? "Importing..." : "Import question changes"}
       </Button>
     </section>
   );

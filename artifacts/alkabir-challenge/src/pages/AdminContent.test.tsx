@@ -234,21 +234,21 @@ describe("AdminContent", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "Intake & Generation" }));
     const file = new File(["prompt,explanation"], "questions.csv", { type: "text/csv" });
-    const csv = "prompt,explanation,type,points,choice_1,choice_1_correct,choice_2,choice_2_correct,choice_3,choice_3_correct,choice_4,choice_4_correct,source_title,source_url,category_id,difficulty_id,audience_ids\nWhat is 2+2?,,multiple_choice,1,Four,true,Five,false,,,,,,,,";
+    const csv = "question_id,expected_version,prompt,explanation,type,points,choice_1,choice_1_correct,choice_2,choice_2_correct,choice_3,choice_3_correct,choice_4,choice_4_correct,source_title,source_url,category_id,difficulty_id,audience_ids\n,,What is 2+2?,,multiple_choice,1,Four,true,Five,false,,,,,,,,";
     Object.defineProperty(file, "text", { value: vi.fn().mockResolvedValue(csv) });
-    mockImportMutate.mockImplementationOnce((_request, options) => options.onSuccess({ importedCount: 1, questionIds: ["q-1"] }));
+    mockImportMutate.mockImplementationOnce((_request, options) => options.onSuccess({ importedCount: 1, createdCount: 1, updatedCount: 0, questionIds: ["q-1"] }));
 
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
     fireEvent.change(fileInput, { target: { files: [file] } });
     expect(await screen.findByText(/questions\.csv/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Import draft questions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import question changes" }));
 
     await waitFor(() => expect(mockImportMutate).toHaveBeenCalledWith(
       { data: { filename: "questions.csv", csv } },
       expect.any(Object),
     ));
     expect(screen.queryByText(/questions\.csv/)).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(/1 draft question imported successfully/);
+    expect(screen.getByRole("status")).toHaveTextContent(/1 draft question imported successfully \(1 created, 0 updated\)/);
     expect(mockInvalidateQueries).toHaveBeenCalledWith(expect.objectContaining({ queryKey: expect.any(Array) }));
   });
 
@@ -265,7 +265,7 @@ describe("AdminContent", () => {
       data: { error: "CSV validation failed", rowErrors: [{ row: 2, column: "prompt", message: "Prompt is required" }] },
     }));
     fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } });
-    fireEvent.click(await screen.findByRole("button", { name: "Import draft questions" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Import question changes" }));
 
     expect(await screen.findByRole("table", { name: "CSV import row errors" })).toBeInTheDocument();
     expect(screen.getByText("Prompt is required")).toBeInTheDocument();
@@ -329,9 +329,9 @@ describe("AdminContent", () => {
     resolveB("content-from-b");
     await waitFor(() => expect(screen.getByText(/b\.csv/)).toBeInTheDocument());
     resolveA("stale-content-from-a");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Import draft questions" })).not.toBeDisabled());
-    mockImportMutate.mockImplementationOnce((_request, options) => options.onSuccess({ importedCount: 1, questionIds: ["q-b"] }));
-    fireEvent.click(screen.getByRole("button", { name: "Import draft questions" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Import question changes" })).not.toBeDisabled());
+    mockImportMutate.mockImplementationOnce((_request, options) => options.onSuccess({ importedCount: 1, createdCount: 1, updatedCount: 0, questionIds: ["q-b"] }));
+    fireEvent.click(screen.getByRole("button", { name: "Import question changes" }));
 
     await waitFor(() => expect(mockImportMutate).toHaveBeenCalledWith(
       { data: { filename: "b.csv", csv: "content-from-b" } },

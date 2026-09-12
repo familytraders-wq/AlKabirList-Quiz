@@ -399,8 +399,8 @@ paths:
     post:
       operationId: importAdminQuestionsCsv
       tags: [admin]
-      summary: Create draft questions from a validated CSV file
-      description: Create-only, all-or-nothing import. The server parses and validates the raw CSV text authoritatively.
+      summary: Create or update draft questions from a validated CSV file
+      description: All-or-nothing import. Blank question_id and expected_version fields create a question; populated fields update the referenced question only when its current version matches.
       requestBody:
         required: true
         content:
@@ -409,7 +409,7 @@ paths:
               $ref: "#/components/schemas/QuestionCsvImportRequest"
       responses:
         "201":
-          description: Draft questions created
+          description: Draft questions created or updated
           content:
             application/json:
               schema:
@@ -1270,11 +1270,17 @@ components:
           description: Raw UTF-8 CSV text. The server enforces a 2 MiB limit.
     QuestionCsvImportResponse:
       type: object
-      required: [importedCount, questionIds]
+      required: [importedCount, createdCount, updatedCount, questionIds]
       properties:
         importedCount:
           type: integer
           minimum: 1
+        createdCount:
+          type: integer
+          minimum: 0
+        updatedCount:
+          type: integer
+          minimum: 0
         questionIds:
           type: array
           minItems: 1

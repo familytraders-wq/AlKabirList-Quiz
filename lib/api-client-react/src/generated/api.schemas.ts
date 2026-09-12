@@ -316,6 +316,10 @@ export interface QuestionCsvImportRequest {
 export interface QuestionCsvImportResponse {
   /** @minimum 1 */
   importedCount: number;
+  /** @minimum 0 */
+  createdCount: number;
+  /** @minimum 0 */
+  updatedCount: number;
   /** @minItems 1 */
   questionIds: string[];
 }
@@ -722,3 +726,4 @@ limit?: number;
  */
 offset?: number;
 };
+

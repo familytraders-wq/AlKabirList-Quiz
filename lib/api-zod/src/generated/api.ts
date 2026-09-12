@@ -652,8 +652,8 @@ export const UpdateAdminQuestionResponse = zod.object({
 
 
 /**
- * Create-only, all-or-nothing import. The server parses and validates the raw CSV text authoritatively.
- * @summary Create draft questions from a validated CSV file
+ * All-or-nothing import. Blank question_id and expected_version fields create a question; populated fields update the referenced question only when its current version matches.
+ * @summary Create or update draft questions from a validated CSV file
  */
 
 
@@ -664,11 +664,17 @@ export const ImportAdminQuestionsCsvBody = zod.object({
 })
 
 
+export const importAdminQuestionsCsvResponseCreatedCountMin = 0;
+
+export const importAdminQuestionsCsvResponseUpdatedCountMin = 0;
+
 
 
 
 export const ImportAdminQuestionsCsvResponse = zod.object({
   "importedCount": zod.number().int().min(1),
+  "createdCount": zod.number().int().min(importAdminQuestionsCsvResponseCreatedCountMin),
+  "updatedCount": zod.number().int().min(importAdminQuestionsCsvResponseUpdatedCountMin),
   "questionIds": zod.array(zod.string().uuid()).min(1)
 })
 
@@ -1286,3 +1292,5 @@ export const PatchMyProfileResponse = zod.object({
   "profileCompletedAt": zod.coerce.date().nullable(),
   "profileComplete": zod.boolean()
 })
+
+

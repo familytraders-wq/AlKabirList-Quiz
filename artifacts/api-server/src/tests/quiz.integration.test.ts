@@ -1122,6 +1122,7 @@ describe("question review transitions", () => {
 
 describe("CSV question imports", () => {
   const header = [
+    "question_id", "expected_version",
     "prompt", "explanation", "type", "points",
     "choice_1", "choice_1_correct", "choice_2", "choice_2_correct",
     "choice_3", "choice_3_correct", "choice_4", "choice_4_correct",
@@ -1132,13 +1133,13 @@ describe("CSV question imports", () => {
     : value;
   const row = (prompt: string, overrides: Record<number, string> = {}) => {
     const values = Array.from({ length: header.length }, () => "");
-    values[0] = prompt;
-    values[2] = "multiple_choice";
-    values[3] = "5";
-    values[4] = "Correct";
-    values[5] = "true";
-    values[6] = "Incorrect";
-    values[7] = "false";
+    values[2] = prompt;
+    values[4] = "multiple_choice";
+    values[5] = "5";
+    values[6] = "Correct";
+    values[7] = "true";
+    values[8] = "Incorrect";
+    values[9] = "false";
     for (const [index, value] of Object.entries(overrides)) values[Number(index)] = value;
     return values.map(csvEscape).join(",");
   };
@@ -1154,6 +1155,8 @@ describe("CSV question imports", () => {
     }, reviewer);
     assert.equal(response.status, 201, JSON.stringify(response.body));
     assert.equal(response.body.importedCount, 2);
+    assert.equal(response.body.createdCount, 2);
+    assert.equal(response.body.updatedCount, 0);
     assert.equal(response.body.questionIds.length, 2);
     scheduledQuestionIds.push(...response.body.questionIds);
     const importedVersions = await db.select({ prompt: questionVersions.prompt }).from(questionVersions)
@@ -1163,6 +1166,70 @@ describe("CSV question imports", () => {
       and(eq(operatorAuditEvents.action, "question_created"), inArray(operatorAuditEvents.entityId, response.body.questionIds)),
     );
     assert.equal(audits.length, 2);
+  });
+
+  it("atomically mixes creates and version-checked updates, returning updated content to draft", async () => {
+    const initial = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "initial.csv", csv: csv(row("Original update target")) }),
+    }, reviewer);
+    assert.equal(initial.status, 201, JSON.stringify(initial.body));
+    const questionId = initial.body.questionIds[0];
+    scheduledQuestionIds.push(questionId);
+
+    for (const [expectedStatus, decision] of [["draft", "submit"], ["pending_review", "approve"]] as const) {
+      const reviewed = await adminMutation(`/admin/quiz/questions/${questionId}/reviews`, {
+        method: "POST",
+        body: JSON.stringify({ expectedStatus, decision }),
+      }, reviewer);
+      assert.equal(reviewed.status, 200, JSON.stringify(reviewed.body));
+    }
+
+    const updatedRow = row("Updated by CSV", { 0: questionId, 1: "1" });
+    const mixed = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "mixed.csv", csv: csv(updatedRow, row("Created beside update")) }),
+    }, reviewer);
+    assert.equal(mixed.status, 201, JSON.stringify(mixed.body));
+    assert.equal(mixed.body.createdCount, 1);
+    assert.equal(mixed.body.updatedCount, 1);
+    assert.ok(mixed.body.questionIds.includes(questionId));
+    const createdId = mixed.body.questionIds.find((id: string) => id !== questionId);
+    scheduledQuestionIds.push(createdId);
+
+    const [updated] = await db
+      .select({ status: questions.status, version: questionVersions.version, prompt: questionVersions.prompt })
+      .from(questions)
+      .innerJoin(questionVersions, eq(questions.currentVersionId, questionVersions.id))
+      .where(eq(questions.id, questionId));
+    assert.deepEqual(updated, { status: "draft", version: 2, prompt: "Updated by CSV" });
+    const updateAudits = await db.select().from(operatorAuditEvents).where(
+      and(eq(operatorAuditEvents.action, "question_updated"), eq(operatorAuditEvents.entityId, questionId)),
+    );
+    assert.ok(updateAudits.length >= 1);
+  });
+
+  it("reports stale update rows and rolls back otherwise valid creates", async () => {
+    const initial = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "initial.csv", csv: csv(row("Stale target")) }),
+    }, reviewer);
+    const questionId = initial.body.questionIds[0];
+    scheduledQuestionIds.push(questionId);
+    const untouchedPrompt = `Must roll back ${randomUUID()}`;
+
+    const stale = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({
+        filename: "stale.csv",
+        csv: csv(row("Stale edit", { 0: questionId, 1: "2" }), row(untouchedPrompt)),
+      }),
+    }, reviewer);
+    assert.equal(stale.status, 400);
+    assert.ok(stale.body.rowErrors.some((error: { row: number; column: string }) =>
+      error.row === 2 && error.column === "expected_version"));
+    const noCreate = await db.select().from(questionVersions).where(eq(questionVersions.prompt, untouchedPrompt));
+    assert.equal(noCreate.length, 0);
   });
 
   it("accepts escape-heavy JSON that is over the global parser limit", async () => {
@@ -1206,7 +1273,7 @@ describe("CSV question imports", () => {
   it("validates every row before writing and rejects normalized duplicate prompts", async () => {
     const invalid = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Will not be written"), row("Invalid", { 5: "yes" })) }),
+      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Will not be written"), row("Invalid", { 7: "yes" })) }),
     }, reviewer);
     assert.equal(invalid.status, 400);
     assert.ok(invalid.body.rowErrors.some((error: { row: number; column: string }) => error.row === 3 && error.column === "choice_1_correct"));
@@ -1249,7 +1316,7 @@ describe("CSV question imports", () => {
       method: "POST",
       body: JSON.stringify({
         filename: "questions.csv",
-        csv: csv(row("Wrong taxonomy kind", { 14: audienceId })),
+        csv: csv(row("Wrong taxonomy kind", { 16: audienceId })),
       }),
     }, reviewer);
     assert.equal(wrongKind.status, 400);
@@ -1258,7 +1325,7 @@ describe("CSV question imports", () => {
 
     const missing = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Missing taxonomy", { 14: randomUUID() })) }),
+      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Missing taxonomy", { 16: randomUUID() })) }),
     }, reviewer);
     assert.equal(missing.status, 400);
     assert.ok(missing.body.rowErrors.some((error: { column: string; message: string }) =>

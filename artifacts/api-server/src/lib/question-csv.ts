@@ -1,6 +1,8 @@
 import { parse as parseCsv } from "csv-parse/sync";
 
 export const QUESTION_IMPORT_HEADERS = [
+  "question_id",
+  "expected_version",
   "prompt",
   "explanation",
   "type",
@@ -27,6 +29,9 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 export type ImportRowError = { row: number; column: string; message: string };
 export type ImportTaxonomyRef = { row: number; column: string; id: string; kind: "category" | "difficulty" | "audience" };
 export type QuestionInput = {
+  row?: number;
+  questionId?: string;
+  expectedVersion?: number;
   categoryId?: string;
   difficultyId?: string;
   audienceIds?: string[];
@@ -116,6 +121,7 @@ export function parseQuestionCsv(csv: string): ParsedQuestionCsv {
   const inputs: QuestionInput[] = [];
   const taxonomyRefs: ImportTaxonomyRef[] = [];
   const seenPrompts = new Map<string, number>();
+  const seenQuestionIds = new Map<string, number>();
   const addError = (row: number, column: string, message: string) => rowErrors.push({ row, column, message });
 
   dataRows.forEach((record, index) => {
@@ -127,6 +133,26 @@ export function parseQuestionCsv(csv: string): ParsedQuestionCsv {
     const values = Object.fromEntries(
       QUESTION_IMPORT_HEADERS.map((column, columnIndex) => [column, record[columnIndex] ?? ""]),
     ) as Record<(typeof QUESTION_IMPORT_HEADERS)[number], string>;
+    const questionId = values.question_id.trim();
+    const expectedVersionText = values.expected_version.trim();
+    if (questionId && !UUID_PATTERN.test(questionId)) {
+      addError(row, "question_id", "Question ID must be a valid UUID");
+    }
+    if (questionId) {
+      const previousQuestionRow = seenQuestionIds.get(questionId);
+      if (previousQuestionRow) {
+        addError(row, "question_id", `Question ID duplicates row ${previousQuestionRow}`);
+      } else {
+        seenQuestionIds.set(questionId, row);
+      }
+    }
+    if (questionId && !expectedVersionText) {
+      addError(row, "expected_version", "Expected version is required when question_id is provided");
+    } else if (!questionId && expectedVersionText) {
+      addError(row, "question_id", "Question ID is required when expected_version is provided");
+    } else if (expectedVersionText && (!/^[1-9]\d*$/.test(expectedVersionText) || !Number.isSafeInteger(Number(expectedVersionText)))) {
+      addError(row, "expected_version", "Expected version must be an integer greater than or equal to 1");
+    }
     const prompt = values.prompt.trim();
     const explanation = values.explanation.trim();
     if (!prompt) addError(row, "prompt", "Prompt is required");
@@ -213,6 +239,11 @@ export function parseQuestionCsv(csv: string): ParsedQuestionCsv {
       correctCount === 1
     ) {
       inputs.push({
+        row,
+        ...(questionId && UUID_PATTERN.test(questionId) ? { questionId } : {}),
+        ...(expectedVersionText && /^[1-9]\d*$/.test(expectedVersionText) && Number.isSafeInteger(Number(expectedVersionText))
+          ? { expectedVersion: Number(expectedVersionText) }
+          : {}),
         prompt,
         explanation,
         type: values.type,

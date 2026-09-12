@@ -80,6 +80,12 @@ function importErrorResponse(res: Response, error: string, rowErrors: ImportRowE
   return res.status(400).json({ error, rowErrors });
 }
 
+class CsvImportConflictError extends Error {
+  constructor(readonly rowErrors: ImportRowError[]) {
+    super("CSV update conflicts");
+  }
+}
+
 async function adminQuestion(questionId: string) {
   const rows = await db
     .select({ question: questions, version: questionVersions, choice: questionChoices })
@@ -601,15 +607,92 @@ router.post("/admin/quiz/questions/import-csv", requirePermission("content.manag
       if (parsed.rowErrors.length) return importErrorResponse(res, "CSV validation failed", parsed.rowErrors);
     }
 
-    const questionIds = await db.transaction(async (tx) => {
+    const result = await db.transaction(async (tx) => {
+      const updates = parsed.inputs.filter((input) => input.questionId);
+      const existingById = new Map<string, { currentVersion: number }>();
+      if (updates.length) {
+        const referencedIds = updates.map((input) => input.questionId!);
+        const existing = await tx
+          .select({ id: questions.id, currentVersion: questionVersions.version })
+          .from(questions)
+          .innerJoin(questionVersions, eq(questions.currentVersionId, questionVersions.id))
+          .where(inArray(questions.id, referencedIds))
+          .for("update");
+        for (const item of existing) existingById.set(item.id, { currentVersion: item.currentVersion });
+
+        const conflicts: ImportRowError[] = [];
+        for (const input of updates) {
+          const current = existingById.get(input.questionId!);
+          if (!current) {
+            conflicts.push({ row: input.row ?? 0, column: "question_id", message: "Question ID does not exist" });
+          } else if (current.currentVersion !== input.expectedVersion) {
+            conflicts.push({
+              row: input.row ?? 0,
+              column: "expected_version",
+              message: `Version conflict: expected ${input.expectedVersion}, current version is ${current.currentVersion}`,
+            });
+          }
+        }
+        if (conflicts.length) throw new CsvImportConflictError(conflicts);
+      }
+
       const ids: string[] = [];
       for (const input of parsed.inputs) {
-        ids.push(await insertQuestionVersionInTransaction(tx, input, ownerId, "draft"));
+        if (!input.questionId) {
+          ids.push(await insertQuestionVersionInTransaction(tx, input, ownerId, "draft"));
+          continue;
+        }
+        const nextVersion = input.expectedVersion! + 1;
+        const [version] = await tx.insert(questionVersions).values({
+          questionId: input.questionId,
+          version: nextVersion,
+          prompt: input.prompt,
+          explanation: input.explanation,
+          type: input.type,
+          points: input.points,
+          sourceMetadata: input.sourceMetadata,
+          createdBy: ownerId,
+        }).returning();
+        if (!version) throw new Error("Question version insert did not return a row");
+        await tx.insert(questionChoices).values(
+          input.choices.map((choice) => ({ ...choice, versionId: version.id })),
+        );
+        await tx.delete(questionAudiences).where(eq(questionAudiences.questionId, input.questionId));
+        if (input.audienceIds?.length) {
+          await tx.insert(questionAudiences).values(
+            input.audienceIds.map((audienceId) => ({ questionId: input.questionId!, audienceId })),
+          );
+        }
+        await tx.update(questions).set({
+          categoryId: input.categoryId,
+          difficultyId: input.difficultyId,
+          status: "draft",
+          currentVersionId: version.id,
+          updatedAt: new Date(),
+        }).where(eq(questions.id, input.questionId));
+        await writeAuditEvent(tx, {
+          actorId: ownerId,
+          action: "question_updated",
+          entityType: "question",
+          entityId: input.questionId,
+          metadata: { status: "draft" },
+        });
+        ids.push(input.questionId);
       }
-      return ids;
+      return {
+        questionIds: ids,
+        createdCount: parsed.inputs.filter((input) => !input.questionId).length,
+        updatedCount: updates.length,
+      };
     });
-    return res.status(201).json(ImportAdminQuestionsCsvResponse.parse({ importedCount: questionIds.length, questionIds }));
+    return res.status(201).json(ImportAdminQuestionsCsvResponse.parse({
+      importedCount: result.questionIds.length,
+      ...result,
+    }));
   } catch (error) {
+    if (error instanceof CsvImportConflictError) {
+      return importErrorResponse(res, "CSV update conflicts", error.rowErrors);
+    }
     return next(error);
   }
 });
