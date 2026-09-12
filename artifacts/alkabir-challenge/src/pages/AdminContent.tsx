@@ -99,24 +99,35 @@ function BankView({ statusFilter, onFilterChange, canManage }: { statusFilter: Q
   const questions = questionsData?.items ?? [];
   const [editingQuestion, setEditingQuestion] = useState<AdminQuestion | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const visibleQuestionIds = questions.map((question) => question.id).join(",");
 
   useEffect(() => {
     setSelectedIds((current) => new Set([...current].filter((id) => questions.some((question) => question.id === id))));
-  }, [statusFilter, questionsData]);
+  }, [statusFilter, visibleQuestionIds]);
 
   const exportQuestions = async () => {
-    const selected = [...selectedIds];
-    const csv = await exportAdminQuestionsCsv(
-      selected.length
-        ? { question_id: selected }
-        : { status: statusFilter },
-    );
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = selected.length ? "alkabir-selected-question-export.csv" : `alkabir-${statusFilter}-question-export.csv`;
-    link.click();
-    URL.revokeObjectURL(link.href);
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      const selected = [...selectedIds];
+      const csv = await exportAdminQuestionsCsv(
+        selected.length
+          ? { question_id: selected }
+          : { status: statusFilter },
+      );
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = selected.length ? "alkabir-selected-question-export.csv" : `alkabir-${statusFilter}-question-export.csv`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch {
+      setExportError("The question export could not be downloaded. Please try again.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const allVisibleSelected = questions.length > 0 && questions.every((question) => selectedIds.has(question.id));
@@ -145,10 +156,20 @@ function BankView({ statusFilter, onFilterChange, canManage }: { statusFilter: Q
             <option value="archived">Archived</option>
           </select>
         </div>
-        <Button type="button" variant="outline" size="sm" disabled={questions.length === 0} onClick={exportQuestions}>
-          {selectedIds.size > 0 ? `Export selected (${selectedIds.size})` : `Export all ${statusFilter}`}
+        <Button type="button" variant="outline" size="sm" disabled={questions.length === 0 || isExporting} onClick={exportQuestions}>
+          {isExporting
+            ? "Preparing CSV..."
+            : selectedIds.size > 0
+              ? `Export selected (${selectedIds.size})`
+              : `Export all ${statusFilter}`}
         </Button>
       </div>
+
+      {exportError && (
+        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+          {exportError}
+        </div>
+      )}
       
       {isLoading ? (
         <div className="py-8 text-center text-muted-foreground">Loading questions...</div>

@@ -13,6 +13,9 @@ vi.mock("@clerk/react", () => ({
 const mockMutate = vi.fn();
 const mockUpdateMutate = vi.fn();
 const mockImportMutate = vi.fn();
+const { mockExportQuestionsCsv } = vi.hoisted(() => ({
+  mockExportQuestionsCsv: vi.fn(),
+}));
 const mockInvalidateQueries = vi.fn();
 let authPermissions = ["content.view", "content.manage"];
 
@@ -84,7 +87,8 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
     useImportAdminQuestionsCsv: () => ({
       mutate: mockImportMutate,
       isPending: false
-    })
+    }),
+    exportAdminQuestionsCsv: mockExportQuestionsCsv,
   };
 });
 
@@ -92,6 +96,7 @@ describe("AdminContent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     authPermissions = ["content.view", "content.manage"];
+    mockExportQuestionsCsv.mockResolvedValue("question_id,expected_version\nq-1,1\n");
   });
   afterEach(() => {
     cleanup();
@@ -124,6 +129,43 @@ describe("AdminContent", () => {
     expect(screen.getByText("Question Bank")).toBeInTheDocument();
     expect(screen.getByText("Review Queue")).toBeInTheDocument();
     expect(screen.getByText("Intake & Generation")).toBeInTheDocument();
+  });
+
+  it("downloads the questions shown by the selected status filter", async () => {
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:question-export");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AdminContent />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(await screen.findByRole("combobox"), { target: { value: "draft" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Export all draft" }));
+
+    await waitFor(() => expect(mockExportQuestionsCsv).toHaveBeenCalledWith({ status: "draft" }));
+    expect(createObjectURL).toHaveBeenCalledOnce();
+    expect(click).toHaveBeenCalledOnce();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:question-export");
+
+    createObjectURL.mockRestore();
+    revokeObjectURL.mockRestore();
+    click.mockRestore();
+  });
+
+  it("shows an error when a question export fails", async () => {
+    mockExportQuestionsCsv.mockRejectedValueOnce(new Error("network failure"));
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AdminContent />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.change(await screen.findByRole("combobox"), { target: { value: "draft" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Export all draft" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("The question export could not be downloaded");
   });
 
   it("submits draft for review and calls invalidateQueries", async () => {
