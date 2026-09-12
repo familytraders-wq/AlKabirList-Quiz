@@ -163,20 +163,28 @@ export function getAnonymousToken(req: Request): string | null {
 }
 
 export function allowedOrigins(): string[] {
-  const configured = [
-    process.env.ALLOWED_ORIGINS,
-    process.env.WEB_ORIGIN,
-    process.env.REPLIT_DEV_DOMAIN
-      ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-      : undefined,
-  ]
+  const configured = [process.env.ALLOWED_ORIGINS, process.env.WEB_ORIGIN]
     .flatMap((value) => (value ? value.split(",") : []))
     .map((value) => value.trim().replace(/\/$/, ""))
     .filter(Boolean);
+  const replitOrigins = [
+    process.env.REPLIT_DOMAINS,
+    process.env.REPLIT_DEV_DOMAIN,
+  ]
+    .flatMap((value) => (value ? value.split(",") : []))
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((domain) => {
+      const origin = /^https?:\/\//i.test(domain)
+        ? domain
+        : `https://${domain}`;
+      return origin.replace(/\/$/, "");
+    });
 
   return Array.from(
     new Set([
       ...configured,
+      ...replitOrigins,
       "http://localhost:5173",
       "http://localhost:3000",
     ]),
