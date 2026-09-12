@@ -67,7 +67,7 @@ import { getOwner, requireAdmin, requireReviewer, requirePermission, requireSupe
 import { csrfProtection } from "../lib/security";
 import { writeAuditEvent } from "../lib/audit";
 import { getPermissionState, isPermission, PERMISSIONS } from "../lib/permissions";
-import { CSV_IMPORT_MAX_BYTES, parseQuestionCsv } from "../lib/question-csv";
+import { CSV_IMPORT_MAX_BYTES, parseQuestionCsv, serializeQuestionCsv } from "../lib/question-csv";
 import type { ImportRowError, QuestionInput } from "../lib/question-csv";
 
 const router: IRouter = Router();
@@ -96,13 +96,22 @@ async function adminQuestion(questionId: string) {
     .orderBy(asc(questionChoices.position));
   const first = rows[0];
   if (!first) return undefined;
+  const audienceRows = await db
+    .select({ audienceId: questionAudiences.audienceId })
+    .from(questionAudiences)
+    .where(eq(questionAudiences.questionId, questionId))
+    .orderBy(asc(questionAudiences.audienceId));
   return {
     id: first.question.id,
     status: first.question.status,
+    categoryId: first.question.categoryId,
+    difficultyId: first.question.difficultyId,
+    audienceIds: audienceRows.map(({ audienceId }) => audienceId),
     versionId: first.version.id,
     version: first.version.version,
     prompt: first.version.prompt,
     explanation: first.version.explanation,
+    type: first.version.type,
     points: first.version.points,
     choices: rows.flatMap(({ choice }) =>
       choice
@@ -542,6 +551,63 @@ router.get("/admin/quiz/questions", requirePermission("content.view"), async (re
     }
     const [total] = await db.select({ total: count() }).from(questions).where(filter);
     res.json(ListAdminQuestionsResponse.parse({ items, total: Number(total?.total ?? 0) }));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/admin/quiz/questions/export-csv", requirePermission("content.view"), async (req, res, next) => {
+  try {
+    const parsed = ListAdminQuestionsQueryParams.safeParse({
+      status: req.query.status,
+      limit: 100,
+      offset: 0,
+    });
+    if (!parsed.success) return badRequest(res, "Invalid question export filters");
+
+    const rawQuestionIds = req.query.question_id;
+    const questionIds = Array.isArray(rawQuestionIds)
+      ? rawQuestionIds.filter((value): value is string => typeof value === "string")
+      : typeof rawQuestionIds === "string"
+        ? [rawQuestionIds]
+        : [];
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (questionIds.some((questionId) => !uuidPattern.test(questionId))) {
+      return badRequest(res, "Question IDs must be valid UUIDs");
+    }
+
+    const filters = [
+      parsed.data.status ? eq(questions.status, parsed.data.status) : undefined,
+      questionIds.length ? inArray(questions.id, questionIds) : undefined,
+    ].filter((filter): filter is NonNullable<typeof filter> => Boolean(filter));
+    const filter = filters.length ? and(...filters) : undefined;
+    const rows = await db
+      .select({ id: questions.id })
+      .from(questions)
+      .where(filter)
+      .orderBy(desc(questions.updatedAt));
+    const items = [];
+    for (const row of rows) {
+      const item = await adminQuestion(row.id);
+      if (item) items.push(item);
+    }
+
+    const csv = serializeQuestionCsv(items.map((item) => ({
+      questionId: item.id,
+      expectedVersion: item.version,
+      prompt: item.prompt,
+      explanation: item.explanation,
+      type: item.type,
+      points: item.points,
+      choices: item.choices,
+      sourceMetadata: item.sourceMetadata,
+      categoryId: item.categoryId,
+      difficultyId: item.difficultyId,
+      audienceIds: item.audienceIds,
+    })));
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="alkabir-question-export.csv"');
+    res.send(csv);
   } catch (error) {
     next(error);
   }

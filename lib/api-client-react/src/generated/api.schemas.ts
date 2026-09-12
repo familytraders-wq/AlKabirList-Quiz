@@ -336,6 +336,14 @@ export interface QuestionCsvImportError {
   rowErrors: QuestionCsvImportRowError[];
 }
 
+export type AdminQuestionType = typeof AdminQuestionType[keyof typeof AdminQuestionType];
+
+
+export const AdminQuestionType = {
+  multiple_choice: 'multiple_choice',
+  true_false: 'true_false',
+} as const;
+
 export type AdminQuestionSourceMetadataItem = {
   title: string;
   url?: string;
@@ -344,10 +352,14 @@ export type AdminQuestionSourceMetadataItem = {
 export interface AdminQuestion {
   id: string;
   status: QuestionStatus;
+  categoryId: string | null;
+  difficultyId: string | null;
+  audienceIds: string[];
   versionId: string;
   version: number;
   prompt: string;
   explanation: string;
+  type: AdminQuestionType;
   /** @minimum 1 */
   points: number;
   choices: QuestionChoiceInput[];
@@ -725,5 +737,13 @@ limit?: number;
  * @minimum 0
  */
 offset?: number;
+};
+
+export type ExportAdminQuestionsCsvParams = {
+status?: QuestionStatus;
+/**
+ * Export only these selected question IDs when provided.
+ */
+question_id?: string[];
 };
 

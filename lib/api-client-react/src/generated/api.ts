@@ -36,6 +36,7 @@ import type {
   ConflictResponse,
   DailyQuiz,
   Error,
+  ExportAdminQuestionsCsvParams,
   Feedback,
   FeedbackInput,
   FeedbackList,
@@ -1667,6 +1668,98 @@ export const useCreateAdminQuestion = <TError = ErrorType<ForbiddenResponse>,
       > => {
       return useMutation(getCreateAdminQuestionMutationOptions(options));
     }
+
+export const getExportAdminQuestionsCsvUrl = (params?: ExportAdminQuestionsCsvParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["question_id"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : String(v));
+      });
+      return;
+    }
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/quiz/questions/export-csv?${stringifiedParams}` : `/api/admin/quiz/questions/export-csv`
+}
+
+/**
+ * @summary Export selected or filtered question records as an importer-ready CSV
+ */
+export const exportAdminQuestionsCsv = async (params?: ExportAdminQuestionsCsvParams, options?: Parameters<typeof customFetch>[1]): Promise<string> => {
+
+  return customFetch<string>(getExportAdminQuestionsCsvUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportAdminQuestionsCsvQueryKey = (params?: ExportAdminQuestionsCsvParams,) => {
+    return [
+    `/api/admin/quiz/questions/export-csv`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getExportAdminQuestionsCsvQueryOptions = <TData = Awaited<ReturnType<typeof exportAdminQuestionsCsv>>, TError = ErrorType<BadRequestResponse | ForbiddenResponse>>(params?: ExportAdminQuestionsCsvParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportAdminQuestionsCsv>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportAdminQuestionsCsvQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportAdminQuestionsCsv>>> = ({ signal }) => exportAdminQuestionsCsv(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportAdminQuestionsCsv>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportAdminQuestionsCsvQueryResult = NonNullable<Awaited<ReturnType<typeof exportAdminQuestionsCsv>>>
+export type ExportAdminQuestionsCsvQueryError = ErrorType<BadRequestResponse | ForbiddenResponse>
+
+
+/**
+ * @summary Export selected or filtered question records as an importer-ready CSV
+ */
+
+export function useExportAdminQuestionsCsv<TData = Awaited<ReturnType<typeof exportAdminQuestionsCsv>>, TError = ErrorType<BadRequestResponse | ForbiddenResponse>>(
+ params?: ExportAdminQuestionsCsvParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportAdminQuestionsCsv>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportAdminQuestionsCsvQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getUpdateAdminQuestionUrl = (questionId: string,) => {
 

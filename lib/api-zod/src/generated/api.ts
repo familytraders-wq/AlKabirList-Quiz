@@ -528,10 +528,14 @@ export const ListAdminQuestionsResponse = zod.object({
   "items": zod.array(zod.object({
   "id": zod.string().uuid(),
   "status": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'archived']),
+  "categoryId": zod.string().uuid().nullable(),
+  "difficultyId": zod.string().uuid().nullable(),
+  "audienceIds": zod.array(zod.string().uuid()),
   "versionId": zod.string().uuid(),
   "version": zod.number().int(),
   "prompt": zod.string(),
   "explanation": zod.string(),
+  "type": zod.enum(['multiple_choice', 'true_false']),
   "points": zod.number().int().min(1),
   "choices": zod.array(zod.object({
   "label": zod.string(),
@@ -580,10 +584,14 @@ export const CreateAdminQuestionBody = zod.object({
 export const CreateAdminQuestionResponse = zod.object({
   "id": zod.string().uuid(),
   "status": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'archived']),
+  "categoryId": zod.string().uuid().nullable(),
+  "difficultyId": zod.string().uuid().nullable(),
+  "audienceIds": zod.array(zod.string().uuid()),
   "versionId": zod.string().uuid(),
   "version": zod.number().int(),
   "prompt": zod.string(),
   "explanation": zod.string(),
+  "type": zod.enum(['multiple_choice', 'true_false']),
   "points": zod.number().int().min(1),
   "choices": zod.array(zod.object({
   "label": zod.string(),
@@ -595,6 +603,17 @@ export const CreateAdminQuestionResponse = zod.object({
   "url": zod.string().url().optional()
 }))
 })
+
+
+/**
+ * @summary Export selected or filtered question records as an importer-ready CSV
+ */
+export const ExportAdminQuestionsCsvQueryParams = zod.object({
+  "status": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'archived']).optional(),
+  "question_id": zod.array(zod.coerce.string().uuid()).optional().describe('Export only these selected question IDs when provided.')
+})
+
+export const ExportAdminQuestionsCsvResponse = zod.unknown()
 
 
 /**
@@ -634,10 +653,14 @@ export const UpdateAdminQuestionBody = zod.object({
 export const UpdateAdminQuestionResponse = zod.object({
   "id": zod.string().uuid(),
   "status": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'archived']),
+  "categoryId": zod.string().uuid().nullable(),
+  "difficultyId": zod.string().uuid().nullable(),
+  "audienceIds": zod.array(zod.string().uuid()),
   "versionId": zod.string().uuid(),
   "version": zod.number().int(),
   "prompt": zod.string(),
   "explanation": zod.string(),
+  "type": zod.enum(['multiple_choice', 'true_false']),
   "points": zod.number().int().min(1),
   "choices": zod.array(zod.object({
   "label": zod.string(),
@@ -698,10 +721,14 @@ export const ReviewQuestionBody = zod.object({
 export const ReviewQuestionResponse = zod.object({
   "id": zod.string().uuid(),
   "status": zod.enum(['draft', 'pending_review', 'approved', 'rejected', 'archived']),
+  "categoryId": zod.string().uuid().nullable(),
+  "difficultyId": zod.string().uuid().nullable(),
+  "audienceIds": zod.array(zod.string().uuid()),
   "versionId": zod.string().uuid(),
   "version": zod.number().int(),
   "prompt": zod.string(),
   "explanation": zod.string(),
+  "type": zod.enum(['multiple_choice', 'true_false']),
   "points": zod.number().int().min(1),
   "choices": zod.array(zod.object({
   "label": zod.string(),

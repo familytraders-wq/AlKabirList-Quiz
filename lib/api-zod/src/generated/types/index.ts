@@ -9,6 +9,7 @@
 export * from './adminQuestion';
 export * from './adminQuestionList';
 export * from './adminQuestionSourceMetadataItem';
+export * from './adminQuestionType';
 export * from './adminQuiz';
 export * from './adminQuizList';
 export * from './adminQuizPreview';
@@ -34,6 +35,7 @@ export * from './dailyCompletion';
 export * from './dailyQuiz';
 export * from './dailyReward';
 export * from './error';
+export * from './exportAdminQuestionsCsvParams';
 export * from './feedback';
 export * from './feedbackInput';
 export * from './feedbackKind';

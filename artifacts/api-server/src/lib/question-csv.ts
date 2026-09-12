@@ -43,11 +43,60 @@ export type QuestionInput = {
   sourceMetadata: Array<{ title: string; url?: string }>;
 };
 
+export type QuestionCsvExportRow = {
+  questionId: string;
+  expectedVersion: number;
+  prompt: string;
+  explanation: string;
+  type: "multiple_choice" | "true_false";
+  points: number;
+  choices: Array<{ label: string; position: number; isCorrect: boolean }>;
+  sourceMetadata: Array<{ title: string; url?: string }>;
+  categoryId?: string | null;
+  difficultyId?: string | null;
+  audienceIds: string[];
+};
+
 export type ParsedQuestionCsv = {
   inputs: QuestionInput[];
   rowErrors: ImportRowError[];
   taxonomyRefs: ImportTaxonomyRef[];
 };
+
+function csvCell(value: string | number | boolean | null | undefined) {
+  const text = value == null ? "" : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+export function serializeQuestionCsv(rows: QuestionCsvExportRow[]) {
+  const lines = [QUESTION_IMPORT_HEADERS.join(",")];
+  for (const row of rows) {
+    const choices = Array.from({ length: 4 }, (_, index) => row.choices[index]);
+    const source = row.sourceMetadata[0];
+    lines.push([
+      row.questionId,
+      row.expectedVersion,
+      row.prompt,
+      row.explanation,
+      row.type,
+      row.points,
+      choices[0]?.label,
+      choices[0]?.isCorrect ?? false,
+      choices[1]?.label,
+      choices[1]?.isCorrect ?? false,
+      choices[2]?.label,
+      choices[2]?.isCorrect ?? false,
+      choices[3]?.label,
+      choices[3]?.isCorrect ?? false,
+      source?.title,
+      source?.url,
+      row.categoryId,
+      row.difficultyId,
+      row.audienceIds.join(";"),
+    ].map(csvCell).join(","));
+  }
+  return lines.join("\r\n") + "\r\n";
+}
 
 function normalizedPrompt(prompt: string) {
   return prompt.trim().replace(/\s+/g, " ").toLocaleLowerCase();

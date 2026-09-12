@@ -371,6 +371,37 @@ paths:
                 $ref: "#/components/schemas/AdminQuestion"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /admin/quiz/questions/export-csv:
+    get:
+      operationId: exportAdminQuestionsCsv
+      tags: [admin]
+      summary: Export selected or filtered question records as an importer-ready CSV
+      parameters:
+        - in: query
+          name: status
+          schema:
+            $ref: "#/components/schemas/QuestionStatus"
+        - in: query
+          name: question_id
+          description: Export only these selected question IDs when provided.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+              format: uuid
+      responses:
+        "200":
+          description: Question import CSV
+          content:
+            text/csv:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /admin/quiz/questions/{questionId}:
     patch:
       operationId: updateAdminQuestion
@@ -1310,13 +1341,26 @@ components:
             $ref: "#/components/schemas/QuestionCsvImportRowError"
     AdminQuestion:
       type: object
-      required: [id, status, versionId, version, prompt, explanation, points, choices, sourceMetadata]
+      required: [id, status, categoryId, difficultyId, audienceIds, versionId, version, prompt, explanation, type, points, choices, sourceMetadata]
       properties:
         id:
           type: string
           format: uuid
         status:
           $ref: "#/components/schemas/QuestionStatus"
+        categoryId:
+          type: string
+          format: uuid
+          nullable: true
+        difficultyId:
+          type: string
+          format: uuid
+          nullable: true
+        audienceIds:
+          type: array
+          items:
+            type: string
+            format: uuid
         versionId:
           type: string
           format: uuid
@@ -1326,6 +1370,9 @@ components:
           type: string
         explanation:
           type: string
+        type:
+          type: string
+          enum: [multiple_choice, true_false]
         points:
           type: integer
           minimum: 1

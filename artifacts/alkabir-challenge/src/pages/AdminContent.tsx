@@ -1,4 +1,4 @@
-import { useState, useRef, FormEvent } from "react";
+import { useState, useRef, FormEvent, useEffect } from "react";
 import { Redirect } from "wouter";
 import { useAuth } from "@clerk/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,6 +11,7 @@ import {
   useReviewQuestion,
   useCreateGenerationRun,
   useImportAdminQuestionsCsv,
+  exportAdminQuestionsCsv,
   QuestionStatus,
   AdminQuestion,
   QuestionChoiceInput,
@@ -97,21 +98,56 @@ function BankView({ statusFilter, onFilterChange, canManage }: { statusFilter: Q
   const { data: questionsData, isLoading } = useListAdminQuestions({ status: statusFilter, limit: 100 });
   const questions = questionsData?.items ?? [];
   const [editingQuestion, setEditingQuestion] = useState<AdminQuestion | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setSelectedIds((current) => new Set([...current].filter((id) => questions.some((question) => question.id === id))));
+  }, [statusFilter, questionsData]);
+
+  const exportQuestions = async () => {
+    const selected = [...selectedIds];
+    const csv = await exportAdminQuestionsCsv(
+      selected.length
+        ? { question_id: selected }
+        : { status: statusFilter },
+    );
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = selected.length ? "alkabir-selected-question-export.csv" : `alkabir-${statusFilter}-question-export.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const allVisibleSelected = questions.length > 0 && questions.every((question) => selectedIds.has(question.id));
+  const toggleAll = () => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) questions.forEach((question) => next.delete(question.id));
+      else questions.forEach((question) => next.add(question.id));
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-      <div className="flex items-center gap-4">
-        <Label className="text-sm font-medium">Status Filter:</Label>
-        <select
-          className="rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
-          value={statusFilter}
-          onChange={(e) => onFilterChange(e.target.value as QuestionStatus)}
-        >
-          <option value="approved">Approved</option>
-          <option value="draft">Drafts</option>
-          <option value="rejected">Rejected</option>
-          <option value="archived">Archived</option>
-        </select>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-4">
+          <Label className="text-sm font-medium">Status Filter:</Label>
+          <select
+            className="rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
+            value={statusFilter}
+            onChange={(e) => onFilterChange(e.target.value as QuestionStatus)}
+          >
+            <option value="approved">Approved</option>
+            <option value="draft">Drafts</option>
+            <option value="rejected">Rejected</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+        <Button type="button" variant="outline" size="sm" disabled={questions.length === 0} onClick={exportQuestions}>
+          {selectedIds.size > 0 ? `Export selected (${selectedIds.size})` : `Export all ${statusFilter}`}
+        </Button>
       </div>
       
       {isLoading ? (
@@ -121,15 +157,28 @@ function BankView({ statusFilter, onFilterChange, canManage }: { statusFilter: Q
           No questions found in this status.
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} />
+            Select all questions in this view
+          </label>
+          <div className="grid gap-4">
           {questions.map(q => (
             <QuestionCard 
               key={q.id} 
               question={q} 
               onEdit={() => setEditingQuestion(q)}
               canManage={canManage}
+              isSelected={selectedIds.has(q.id)}
+              onSelectionChange={(selected) => setSelectedIds((current) => {
+                const next = new Set(current);
+                if (selected) next.add(q.id);
+                else next.delete(q.id);
+                return next;
+              })}
             />
           ))}
+          </div>
         </div>
       )}
 
@@ -168,7 +217,7 @@ function QueueView({ canManage }: { canManage: boolean }) {
   );
 }
 
-function QuestionCard({ question, isReviewMode = false, onEdit, canManage = true }: { question: AdminQuestion, isReviewMode?: boolean, onEdit?: () => void, canManage?: boolean }) {
+function QuestionCard({ question, isReviewMode = false, onEdit, canManage = true, isSelected, onSelectionChange }: { question: AdminQuestion, isReviewMode?: boolean, onEdit?: () => void, canManage?: boolean, isSelected?: boolean, onSelectionChange?: (selected: boolean) => void }) {
   const queryClient = useQueryClient();
   const reviewMutation = useReviewQuestion();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -197,6 +246,14 @@ function QuestionCard({ question, isReviewMode = false, onEdit, canManage = true
       <div className="flex justify-between items-start gap-4">
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
+            {onSelectionChange && (
+              <input
+                type="checkbox"
+                aria-label={`Select question: ${question.prompt}`}
+                checked={isSelected ?? false}
+                onChange={(event) => onSelectionChange(event.target.checked)}
+              />
+            )}
             <span className="text-xs font-mono text-muted-foreground">ID: {question.id}</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground font-medium">
               v{question.version}

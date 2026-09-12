@@ -6,16 +6,21 @@
  * OpenAPI spec version: 0.2.0
  */
 import type { AdminQuestionSourceMetadataItem } from './adminQuestionSourceMetadataItem';
+import type { AdminQuestionType } from './adminQuestionType';
 import type { QuestionChoiceInput } from './questionChoiceInput';
 import type { QuestionStatus } from './questionStatus';
 
 export interface AdminQuestion {
   id: string;
   status: QuestionStatus;
+  categoryId: string | null;
+  difficultyId: string | null;
+  audienceIds: string[];
   versionId: string;
   version: number;
   prompt: string;
   explanation: string;
+  type: AdminQuestionType;
   /** @minimum 1 */
   points: number;
   choices: QuestionChoiceInput[];

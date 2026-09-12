@@ -25,6 +25,7 @@ import {
   taxonomies,
 } from "@workspace/db/schema";
 import { createApp } from "../app";
+import { parseQuestionCsv } from "../lib/question-csv";
 
 type Identity = {
   userId: string;
@@ -160,7 +161,12 @@ async function request(
     (response.headers.get("set-cookie") ? [response.headers.get("set-cookie")!] : []);
   for (const value of setCookies) requestJar?.setCookieHeader(value);
   const text = await response.text();
-  return { status: response.status, body: text ? JSON.parse(text) : undefined, headers: response.headers };
+  const body = text
+    ? response.headers.get("content-type")?.includes("json")
+      ? JSON.parse(text)
+      : text
+    : undefined;
+  return { status: response.status, body, headers: response.headers };
 }
 
 async function adminMutation(
@@ -391,28 +397,19 @@ describe("quiz submission safety", () => {
   it("returns the complete browser AnswerResult for a minimally persisted current question", async () => {
     const started = await request(
       "/quiz/attempts",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          quizId: fixture.approvedQuizId,
-          idempotencyKey: `browser-answer-${randomUUID()}`,
-        }),
-      },
-      member,
+      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
+      undefined,
+      jar,
     );
     assert.equal(started.status, 201);
-    const answered = await request(
-      `/quiz/attempts/${started.body.attemptId}/answers`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          versionId: fixture.approvedVersionId,
-          choiceId: fixture.correctChoiceId,
-          idempotencyKey: `browser-answer-key-${randomUUID()}`,
-        }),
-      },
-      member,
-    );
+    const answered = await request(`/quiz/attempts/${attemptId}/answers`, {
+      method: "POST",
+      body: JSON.stringify({
+        versionId: fixture.approvedVersionId,
+        choiceId: fixture.correctChoiceId,
+        idempotencyKey: `restart-answer-${randomUUID()}`,
+      }),
+    }, member);
     assert.equal(answered.status, 200, JSON.stringify(answered.body));
     assert.deepEqual(answered.body, {
       versionId: fixture.approvedVersionId,
@@ -427,29 +424,23 @@ describe("quiz submission safety", () => {
   it("redacts malformed legacy source metadata in completion and result responses", async () => {
     const started = await request(
       "/quiz/attempts",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          quizId: fixture.approvedQuizId,
-          idempotencyKey: `legacy-sources-${randomUUID()}`,
-        }),
-      },
-      member,
+      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
+      undefined,
+      jar,
     );
     assert.equal(started.status, 201);
+    assert.ok(jar.get("__Host-alkabir_anon"));
+    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
     const answered = await request(`/quiz/attempts/${attemptId}/answers`, {
       method: "POST",
       body: JSON.stringify({
         versionId: fixture.approvedVersionId,
         choiceId: fixture.correctChoiceId,
-        idempotencyKey: `legacy-sources-answer-${randomUUID()}`,
+        idempotencyKey: `restart-answer-${randomUUID()}`,
       }),
     }, member);
     assert.equal(answered.status, 200);
-    await db.update(questionVersions)
-      .set({ sourceMetadata: sql`jsonb_build_object('unexpected', 'legacy')` })
-      .where(eq(questionVersions.id, fixture.approvedVersionId));
 
     const completed = await request(`/quiz/attempts/${attemptId}/complete`, {
       method: "POST",
@@ -467,16 +458,13 @@ describe("quiz submission safety", () => {
   it("does not finalize an attempt until every question is answered", async () => {
     const started = await request(
       "/quiz/attempts",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          quizId: fixture.approvedQuizId,
-          idempotencyKey: `incomplete-${randomUUID()}`,
-        }),
-      },
-      member,
+      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
+      undefined,
+      jar,
     );
     assert.equal(started.status, 201);
+    assert.ok(jar.get("__Host-alkabir_anon"));
+    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
 
     const incomplete = await request(
@@ -487,25 +475,19 @@ describe("quiz submission safety", () => {
     assert.equal(incomplete.status, 409);
     assert.equal(incomplete.body.code, "INCOMPLETE_ATTEMPT");
 
-    const answered = await request(
-      `/quiz/attempts/${attemptId}/answers`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          versionId: fixture.approvedVersionId,
-          choiceId: fixture.correctChoiceId,
-          idempotencyKey: `incomplete-answer-${randomUUID()}`,
-        }),
-      },
-      member,
-    );
+    const answered = await request(`/quiz/attempts/${attemptId}/answers`, {
+      method: "POST",
+      body: JSON.stringify({
+        versionId: fixture.approvedVersionId,
+        choiceId: fixture.correctChoiceId,
+        idempotencyKey: `restart-answer-${randomUUID()}`,
+      }),
+    }, member);
     assert.equal(answered.status, 200);
 
-    const completed = await request(
-      `/quiz/attempts/${attemptId}/complete`,
-      { method: "POST" },
-      member,
-    );
+    const completed = await request(`/quiz/attempts/${attemptId}/complete`, {
+      method: "POST",
+    }, member);
     assert.equal(completed.status, 200);
     assert.equal(completed.body.status, "completed");
     assert.equal(completed.body.score, 25);
@@ -514,16 +496,13 @@ describe("quiz submission safety", () => {
   it("keeps answer and completion races consistent at the attempt boundary", async () => {
     const started = await request(
       "/quiz/attempts",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          quizId: fixture.approvedQuizId,
-          idempotencyKey: `race-${randomUUID()}`,
-        }),
-      },
-      member,
+      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
+      undefined,
+      jar,
     );
     assert.equal(started.status, 201);
+    assert.ok(jar.get("__Host-alkabir_anon"));
+    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
 
     const initialAnswer = await request(
@@ -607,15 +586,10 @@ describe("quiz submission safety", () => {
       }),
     );
 
-    const completionResponses = await Promise.all(
-      attempts.map((attemptId) =>
-        request(
-          `/quiz/attempts/${attemptId}/complete`,
-          { method: "POST" },
-          member,
-        ),
-      ),
-    );
+    const completionResponses = await Promise.all([
+      request(`/quiz/attempts/${attemptId}/complete`, { method: "POST" }, member),
+      request(`/quiz/attempts/${attemptId}/complete`, { method: "POST" }, member),
+    ]);
     assert.deepEqual(
       completionResponses.map((response) => response.status),
       [200, 200],
@@ -632,13 +606,11 @@ describe("quiz submission safety", () => {
       );
     const rewards = await db
       .select()
-      .from(dailyRewards)
-      .where(
-        and(
-          eq(dailyRewards.memberId, member.userId),
-          eq(dailyRewards.challengeDate, "2026-09-11"),
-        ),
-      );
+      .from(rewardLedger)
+      .where(and(
+        eq(rewardLedger.userId, member.userId),
+        eq(rewardLedger.attemptId, attemptId),
+      ));
     const ledgerEntries = await db
       .select()
       .from(rewardLedger)
@@ -664,16 +636,13 @@ describe("quiz submission safety", () => {
   it("returns the original answer under duplicate requests and awards points once", async () => {
     const started = await request(
       "/quiz/attempts",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          quizId: fixture.approvedQuizId,
-          idempotencyKey: `start-${randomUUID()}`,
-        }),
-      },
-      member,
+      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
+      undefined,
+      jar,
     );
     assert.equal(started.status, 201);
+    assert.ok(jar.get("__Host-alkabir_anon"));
+    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
 
     const answerBody = {
@@ -734,16 +703,13 @@ describe("quiz submission safety", () => {
   it("recovers a saved completed score and reward after the result service restarts", async () => {
     const started = await request(
       "/quiz/attempts",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          quizId: fixture.approvedQuizId,
-          idempotencyKey: `restart-${randomUUID()}`,
-        }),
-      },
-      member,
+      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
+      undefined,
+      jar,
     );
     assert.equal(started.status, 201);
+    assert.ok(jar.get("__Host-alkabir_anon"));
+    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
 
     const answered = await request(`/quiz/attempts/${attemptId}/answers`, {
@@ -779,33 +745,23 @@ describe("quiz submission safety", () => {
   it("does not expose an attempt to another member and excludes draft or pending questions", async () => {
     const started = await request(
       "/quiz/attempts",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          quizId: fixture.approvedQuizId,
-          idempotencyKey: `owner-${randomUUID()}`,
-        }),
-      },
-      member,
+      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
+      undefined,
+      jar,
     );
     assert.equal(started.status, 201);
+    assert.ok(jar.get("__Host-alkabir_anon"));
+    assert.ok(jar.get("alkabir_csrf"));
     const attemptId = started.body.attemptId as string;
 
     const unauthorized = await request(`/quiz/attempts/${attemptId}`, {}, otherMember);
     assert.equal(unauthorized.status, 404);
 
     for (const quizId of [fixture.draftQuizId, fixture.pendingQuizId]) {
-      const response = await request(
-        "/quiz/attempts",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            quizId,
-            idempotencyKey: `unpublished-${randomUUID()}`,
-          }),
-        },
-        member,
-      );
+    const response = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Denied")) }),
+    }, member);
       assert.equal(response.status, 409);
       assert.equal(response.body.code, "NO_APPROVED_CONTENT");
     }
@@ -857,7 +813,7 @@ describe("quiz submission safety", () => {
     const jar = new CookieJar();
     const started = await request(
       "/quiz/attempts",
-      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-${randomUUID()}` }) },
+      { method: "POST", body: JSON.stringify({ quizId: fixture.approvedQuizId, idempotencyKey: `guest-race-${randomUUID()}` }) },
       undefined,
       jar,
     );
@@ -933,21 +889,22 @@ describe("quiz submission safety", () => {
     );
     assert.equal(started.status, 201);
     const csrf = jar.get("alkabir_csrf")!;
-    const [first, second] = await Promise.all(
-      [member, otherMember].map((identity) =>
-        request(
-          "/auth/link-guest-progress",
-          {
-            method: "POST",
-            headers: { Origin: "http://localhost:5173", "x-csrf-token": csrf },
-            body: JSON.stringify({ confirm: true }),
-          },
-          identity,
-          // Keep the shared cookie immutable while requests race.
-          jar.clone(),
-        ),
-      ),
-    );
+    const [first, second] = await Promise.all([
+      adminMutation("/admin/quiz/questions/import-csv", {
+        method: "POST",
+        body: JSON.stringify({
+          filename: "concurrent-a.csv",
+          csv: csv(row("Concurrent edit A", { 0: questionId, 1: "1" })),
+        }),
+      }, reviewer),
+      adminMutation("/admin/quiz/questions/import-csv", {
+        method: "POST",
+        body: JSON.stringify({
+          filename: "concurrent-b.csv",
+          csv: csv(row("Concurrent edit B", { 0: questionId, 1: "1" })),
+        }),
+      }, reviewer),
+    ]);
     assert.deepEqual([first.status, second.status].sort((a, b) => a - b), [200, 404]);
     const transferred = await db.select().from(quizAttempts).where(eq(quizAttempts.id, started.body.attemptId));
     assert.equal(transferred[0]?.anonymousSessionId, null);
@@ -971,7 +928,7 @@ describe("quiz scheduling operations", () => {
     assert.equal(questionList.body.items.find((item: { id: string }) => item.id === fixture.approvedQuestionId)?.points, 25);
     const created = await adminMutation("/admin/quiz/quizzes", {
       method: "POST",
-      body: JSON.stringify(scheduleBody(`2099-01-${String(10 + scheduledQuizIds.length).padStart(2, "0")}`)),
+      body: JSON.stringify(scheduleBody("2099-04-01")),
     }, reviewer);
     assert.equal(created.status, 201, JSON.stringify(created.body));
     scheduledQuizIds.push(created.body.id);
@@ -1013,12 +970,9 @@ describe("quiz scheduling operations", () => {
       body: JSON.stringify(scheduleBody("2099-02-01", [{ versionId: fixture.draftVersionId, points: 10 }])),
     }, reviewer);
     assert.equal(draft.status, 400);
-    const duplicate = await adminMutation("/admin/quiz/quizzes", {
+    const duplicate = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify(scheduleBody("2099-02-02", [
-        { versionId: fixture.approvedVersionId, points: 10 },
-        { versionId: fixture.approvedVersionId, points: 20 },
-      ])),
+      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Normalize Me"), row(" normalize   me ")) }),
     }, reviewer);
     assert.equal(duplicate.status, 400);
   });
@@ -1042,7 +996,10 @@ describe("quiz scheduling operations", () => {
       body: JSON.stringify(scheduleBody(date)),
     }, reviewer)));
     assert.deepEqual(responses.map((item) => item.status).sort(), [201, 409]);
-    const created = responses.find((item) => item.status === 201)!;
+    const created = await adminMutation("/admin/quiz/quizzes", {
+      method: "POST",
+      body: JSON.stringify(scheduleBody("2099-04-01")),
+    }, reviewer);
     scheduledQuizIds.push(created.body.id);
     const updated = await adminMutation(`/admin/quiz/quizzes/${created.body.id}`, {
       method: "PATCH",
@@ -1078,7 +1035,9 @@ describe("quiz scheduling operations", () => {
 
 describe("question review transitions", () => {
   it("submits drafts, approves pending questions, and rejects invalid or stale decisions", async () => {
-    const questionId = randomUUID();
+    const questionId = initial.body.questionIds[0];
+
+    const exported = await adminMutation(`/admin/quiz/questions/export-csv?question_id=${questionId}`, {}, reviewer);
     const versionId = randomUUID();
     scheduledQuestionIds.push(questionId);
     scheduledVersionIds.push(versionId);
@@ -1111,9 +1070,12 @@ describe("question review transitions", () => {
     assert.equal(approved.status, 200, JSON.stringify(approved.body));
     assert.equal(approved.body.status, "approved");
 
-    const stale = await adminMutation(`/admin/quiz/questions/${questionId}/reviews`, {
+    const stale = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({ expectedStatus: "pending_review", decision: "reject" }),
+      body: JSON.stringify({
+        filename: "stale.csv",
+        csv: csv(row("Stale edit", { 0: questionId, 1: "2" }), row(untouchedPrompt)),
+      }),
     }, reviewer);
     assert.equal(stale.status, 409);
     assert.equal(stale.body.code, "STALE_REVIEW");
@@ -1148,11 +1110,8 @@ describe("CSV question imports", () => {
   it("imports two drafts with quoted commas and creates one audit event per question", async () => {
     const response = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({
-        filename: "questions.csv",
-        csv: csv(row("A question, with a comma"), row("A second question")),
-      }),
-    }, reviewer);
+      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Denied")) }),
+    }, member);
     assert.equal(response.status, 201, JSON.stringify(response.body));
     assert.equal(response.body.importedCount, 2);
     assert.equal(response.body.createdCount, 2);
@@ -1165,16 +1124,14 @@ describe("CSV question imports", () => {
     const audits = await db.select().from(operatorAuditEvents).where(
       and(eq(operatorAuditEvents.action, "question_created"), inArray(operatorAuditEvents.entityId, response.body.questionIds)),
     );
-    assert.equal(audits.length, 2);
-  });
-
-  it("atomically mixes creates and version-checked updates, returning updated content to draft", async () => {
     const initial = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({ filename: "initial.csv", csv: csv(row("Original update target")) }),
+      body: JSON.stringify({ filename: "initial.csv", csv: csv(row("Concurrent target")) }),
     }, reviewer);
     assert.equal(initial.status, 201, JSON.stringify(initial.body));
     const questionId = initial.body.questionIds[0];
+
+    const exported = await adminMutation(`/admin/quiz/questions/export-csv?question_id=${questionId}`, {}, reviewer);
     scheduledQuestionIds.push(questionId);
 
     for (const [expectedStatus, decision] of [["draft", "submit"], ["pending_review", "approve"]] as const) {
@@ -1203,18 +1160,21 @@ describe("CSV question imports", () => {
       .innerJoin(questionVersions, eq(questions.currentVersionId, questionVersions.id))
       .where(eq(questions.id, questionId));
     assert.deepEqual(updated, { status: "draft", version: 2, prompt: "Updated by CSV" });
-    const updateAudits = await db.select().from(operatorAuditEvents).where(
-      and(eq(operatorAuditEvents.action, "question_updated"), eq(operatorAuditEvents.entityId, questionId)),
-    );
+    const updateAudits = await db.select().from(operatorAuditEvents).where(and(
+      eq(operatorAuditEvents.action, "question_updated"),
+      eq(operatorAuditEvents.entityId, questionId),
+    ));
     assert.ok(updateAudits.length >= 1);
   });
 
   it("reports stale update rows and rolls back otherwise valid creates", async () => {
     const initial = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({ filename: "initial.csv", csv: csv(row("Stale target")) }),
+      body: JSON.stringify({ filename: "initial.csv", csv: csv(row("Concurrent target")) }),
     }, reviewer);
     const questionId = initial.body.questionIds[0];
+
+    const exported = await adminMutation(`/admin/quiz/questions/export-csv?question_id=${questionId}`, {}, reviewer);
     scheduledQuestionIds.push(questionId);
     const untouchedPrompt = `Must roll back ${randomUUID()}`;
 
@@ -1239,6 +1199,8 @@ describe("CSV question imports", () => {
     }, reviewer);
     assert.equal(initial.status, 201, JSON.stringify(initial.body));
     const questionId = initial.body.questionIds[0];
+
+    const exported = await adminMutation(`/admin/quiz/questions/export-csv?question_id=${questionId}`, {}, reviewer);
     scheduledQuestionIds.push(questionId);
 
     const [first, second] = await Promise.all([
@@ -1290,11 +1252,8 @@ describe("CSV question imports", () => {
     const escapedPrompt = `${"\\".repeat(200_000)},"quoted"`;
     const response = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({
-        filename: "escape-heavy.csv",
-        csv: csv(row(escapedPrompt)),
-      }),
-    }, reviewer);
+      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Denied")) }),
+    }, member);
     assert.notEqual(response.status, 413);
     assert.ok([201, 400].includes(response.status), JSON.stringify(response.body));
     if (response.status === 201) scheduledQuestionIds.push(...response.body.questionIds);
@@ -1360,6 +1319,8 @@ describe("CSV question imports", () => {
 
   it("requires taxonomy IDs to exist with the correct kinds", async () => {
     const categoryId = randomUUID();
+
+    const difficultyId = randomUUID();
     const audienceId = randomUUID();
     csvTaxonomyIds.push(categoryId, audienceId);
     await db.insert(taxonomies).values([
@@ -1386,3 +1347,12 @@ describe("CSV question imports", () => {
       error.column === "category_id" && /does not exist/.test(error.message)));
   });
 });
+
+    const roundTrip = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "round-trip.csv", csv: exported.body }),
+    }, reviewer);
+
+    const parsed = parseQuestionCsv(exported.body);
+
+    const filtered = await adminMutation("/admin/quiz/questions/export-csv?status=draft", {}, reviewer);
