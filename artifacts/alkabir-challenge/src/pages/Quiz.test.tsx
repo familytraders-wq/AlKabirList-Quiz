@@ -456,6 +456,47 @@ describe("Quiz lifecycle", () => {
     expect(mockState.result.refetch).toHaveBeenCalledOnce();
   });
 
+  it("prevents duplicate completed-result retries during rapid activation", async () => {
+    window.localStorage.setItem("alkabir.quiz.attemptId:daily-quiz", "attempt-1");
+    mockState.resume.data = completedAttempt;
+    mockState.result.isError = true;
+    mockState.result.error = new Error("The result service is temporarily unavailable.");
+
+    let requestCount = 0;
+    let resolveRetry!: () => void;
+    mockState.result.refetch.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          requestCount += 1;
+          resolveRetry = () => {
+            mockState.result.isError = false;
+            mockState.result.error = null;
+            mockState.result.data = completedResult;
+            resolve();
+          };
+        }),
+    );
+
+    renderWithProviders(<Quiz />);
+
+    expect(await screen.findByText("Your result could not be loaded")).toBeInTheDocument();
+    const retryButton = screen.getByTestId("button-retry-quiz");
+    fireEvent.click(retryButton);
+    fireEvent.click(retryButton);
+
+    await waitFor(() => {
+      expect(requestCount).toBe(1);
+      expect(retryButton).toBeDisabled();
+      expect(retryButton).toHaveTextContent("Retrying…");
+    });
+    expect(screen.getByText("The result service is temporarily unavailable.")).toBeInTheDocument();
+
+    resolveRetry();
+
+    expect(await screen.findByText("2/2")).toBeInTheDocument();
+    expect(screen.getByText("Reward points: 10")).toBeInTheDocument();
+  });
+
   it("re-enables completed-result retry after a second failed request", async () => {
     window.localStorage.setItem("alkabir.quiz.attemptId:daily-quiz", "attempt-1");
     mockState.resume.data = completedAttempt;

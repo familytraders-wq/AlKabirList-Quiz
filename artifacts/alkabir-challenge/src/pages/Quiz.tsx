@@ -153,6 +153,7 @@ export function Quiz() {
   const [finalResult, setFinalResult] = useState<QuizResult | null>(null);
   const [isResultRetrying, setIsResultRetrying] = useState(false);
   const [resultRetryError, setResultRetryError] = useState<unknown>(null);
+  const resultRetryingRef = useRef(false);
   const startRequested = useRef(false);
   const answerKeys = useRef(new Map<string, string>());
   const {
@@ -282,6 +283,8 @@ export function Quiz() {
   };
 
   const retryResult = async () => {
+    if (resultRetryingRef.current) return;
+    resultRetryingRef.current = true;
     setIsResultRetrying(true);
     setResultRetryError(null);
     try {
@@ -289,6 +292,7 @@ export function Quiz() {
     } catch (error) {
       setResultRetryError(error);
     } finally {
+      resultRetryingRef.current = false;
       setIsResultRetrying(false);
     }
   };
