@@ -26,7 +26,7 @@ import {
 } from "@workspace/api-zod";
 import { getRequestUser, requiredUser } from "../lib/auth";
 import { csrfProtection } from "../lib/security";
-import { requireAdmin, requireReviewer } from "../middlewares/auth";
+import { requireReviewer, requirePermission } from "../middlewares/auth";
 import { writeAuditEvent } from "../lib/audit";
 
 const router = Router();
@@ -95,7 +95,7 @@ router.post("/me/feedback", csrfProtection, requiredUser, async (req, res, next)
   } catch (error) { next(error); }
 });
 
-router.get("/admin/beta/feedback", requireReviewer, async (req, res, next) => {
+router.get("/admin/beta/feedback", requirePermission("beta.view"), async (req, res, next) => {
   try {
     const parsed = ListBetaFeedbackQueryParams.safeParse(req.query);
     if (!parsed.success) { res.status(400).json({ code: "BAD_REQUEST", message: "Invalid feedback filters" }); return; }
@@ -109,7 +109,7 @@ router.get("/admin/beta/feedback", requireReviewer, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.patch("/admin/beta/feedback/:feedbackId", requireReviewer, csrfProtection, async (req, res, next) => {
+router.patch("/admin/beta/feedback/:feedbackId", requirePermission("beta.manage"), csrfProtection, async (req, res, next) => {
   try {
     const params = ModerateBetaFeedbackParams.safeParse(req.params);
     const parsed = ModerateBetaFeedbackBody.safeParse(req.body);
@@ -142,7 +142,7 @@ router.patch("/admin/beta/feedback/:feedbackId", requireReviewer, csrfProtection
   } catch (error) { next(error); }
 });
 
-router.get("/admin/beta/summary", requireReviewer, async (_req, res, next) => {
+router.get("/admin/beta/summary", requirePermission("beta.view"), async (_req, res, next) => {
   try {
     const since = since7d();
     const [members] = await db.select({ total: count() }).from(users);
@@ -161,7 +161,7 @@ router.get("/admin/beta/summary", requireReviewer, async (_req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.get("/admin/beta/audit", requireAdmin, async (req, res, next) => {
+router.get("/admin/beta/audit", requirePermission("access.view"), async (req, res, next) => {
   try {
     const parsed = ListBetaAuditQueryParams.safeParse(req.query);
     if (!parsed.success) { res.status(400).json({ code: "BAD_REQUEST", message: "Invalid audit filters" }); return; }

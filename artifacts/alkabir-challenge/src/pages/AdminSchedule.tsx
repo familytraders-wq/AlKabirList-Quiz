@@ -30,13 +30,16 @@ export function AdminSchedule() {
   const { data: authMe, isLoading: isLoadingAuth } = useGetAuthMe({
     query: { enabled: isLoaded && isSignedIn, queryKey: getGetAuthMeQueryKey() }
   });
+  const permissions = authMe?.user?.permissions ?? [];
+  const canView = authMe?.user?.isSuperAdmin === true || permissions.includes("schedule.view");
+  const canManage = authMe?.user?.isSuperAdmin === true || permissions.includes("schedule.manage");
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingQuizId, setEditingQuizId] = useState<string | null>(null);
   const [previewQuizId, setPreviewQuizId] = useState<string | null>(null);
 
   const { data: quizzesData, isLoading: isLoadingQuizzes } = useListAdminQuizzes({
-    query: { enabled: isLoaded && isSignedIn, queryKey: getListAdminQuizzesQueryKey() }
+      query: { enabled: isLoaded && isSignedIn && canView, queryKey: getListAdminQuizzesQueryKey() }
   });
   const quizzes = quizzesData?.items ?? [];
 
@@ -45,8 +48,7 @@ export function AdminSchedule() {
   }
 
   if (!isSignedIn) return <Redirect to="/sign-in" />;
-  const hasAccess = authMe?.user?.roles.includes("admin") || authMe?.user?.roles.includes("reviewer");
-  if (!hasAccess) return <Redirect to="/member" />;
+  if (!canView) return <Redirect to="/member" />;
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-6 md:p-10">
@@ -55,7 +57,7 @@ export function AdminSchedule() {
           <h1 className="font-serif text-3xl font-semibold text-primary">Schedule Quizzes</h1>
           <p className="mt-2 text-muted-foreground">Manage daily challenges and preview participant experience.</p>
         </div>
-        <Button onClick={() => setIsCreateOpen(true)} className="shrink-0">Create Quiz</Button>
+        {canManage && <Button onClick={() => setIsCreateOpen(true)} className="shrink-0">Create Quiz</Button>}
       </div>
 
       {isLoadingQuizzes ? (
@@ -92,7 +94,7 @@ export function AdminSchedule() {
                   </td>
                   <td className="p-4 text-right space-x-2">
                     <Button variant="ghost" size="sm" onClick={() => setPreviewQuizId(quiz.id)}>Preview</Button>
-                    <Button variant="outline" size="sm" onClick={() => setEditingQuizId(quiz.id)}>Edit</Button>
+                    {canManage && <Button variant="outline" size="sm" onClick={() => setEditingQuizId(quiz.id)}>Edit</Button>}
                   </td>
                 </tr>
               ))}
@@ -102,23 +104,23 @@ export function AdminSchedule() {
       )}
 
       {/* Dialogs */}
-      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+      {canManage && <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Schedule New Quiz</DialogTitle>
           </DialogHeader>
           <QuizForm onClose={() => setIsCreateOpen(false)} />
         </DialogContent>
-      </Dialog>
+      </Dialog>}
 
-      <Dialog open={editingQuizId !== null} onOpenChange={(open) => !open && setEditingQuizId(null)}>
+      {canManage && <Dialog open={editingQuizId !== null} onOpenChange={(open) => !open && setEditingQuizId(null)}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Scheduled Quiz</DialogTitle>
           </DialogHeader>
           {editingQuizId && <QuizForm quizId={editingQuizId} onClose={() => setEditingQuizId(null)} />}
         </DialogContent>
-      </Dialog>
+      </Dialog>}
 
       <Dialog open={previewQuizId !== null} onOpenChange={(open) => !open && setPreviewQuizId(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">

@@ -9,21 +9,25 @@ export function Navbar() {
   const { isLoaded, isSignedIn } = useAuth();
   const [isAdmin, setIsAdmin] = useState(false);
   const [isReviewer, setIsReviewer] = useState(false);
+  const [permissions, setPermissions] = useState<string[]>([]);
   useEffect(() => {
     if (!isLoaded || !isSignedIn) {
       setIsAdmin(false);
       setIsReviewer(false);
+      setPermissions([]);
       return;
     }
     void fetch("/api/auth/me", { credentials: "same-origin" })
       .then((response) => response.json())
-      .then((state: { user?: { roles: string[] } | null }) => {
+      .then((state: { user?: { roles: string[]; permissions?: string[] } | null }) => {
         setIsAdmin(state.user?.roles.includes("admin") ?? false);
         setIsReviewer(state.user?.roles.includes("reviewer") ?? false);
+        setPermissions(state.user?.permissions ?? []);
       })
       .catch(() => {
         setIsAdmin(false);
         setIsReviewer(false);
+        setPermissions([]);
       });
   }, [isLoaded, isSignedIn]);
 
@@ -80,10 +84,10 @@ export function Navbar() {
           <Link href={isLoaded && isSignedIn ? "/member" : "/"} className="text-primary border-b-2 border-primary py-5">
             Islamic Challenge
           </Link>
-          {(isReviewer || isAdmin) && <Link href="/admin/content" className="text-muted-foreground hover:text-primary transition-colors">Content</Link>}
-          {(isReviewer || isAdmin) && <Link href="/admin/schedule" className="text-muted-foreground hover:text-primary transition-colors">Schedule</Link>}
-          {(isReviewer || isAdmin) && <Link href="/admin/beta" className="text-muted-foreground hover:text-primary transition-colors">Beta</Link>}
-          {isAdmin && <Link href="/admin/users" className="text-muted-foreground hover:text-primary transition-colors">Access</Link>}
+          {permissions.includes("content.view") && <Link href="/admin/content" className="text-muted-foreground hover:text-primary transition-colors">Content</Link>}
+          {permissions.includes("schedule.view") && <Link href="/admin/schedule" className="text-muted-foreground hover:text-primary transition-colors">Schedule</Link>}
+          {permissions.includes("beta.view") && <Link href="/admin/beta" className="text-muted-foreground hover:text-primary transition-colors">Beta</Link>}
+          {permissions.includes("access.view") && <Link href="/admin/users" className="text-muted-foreground hover:text-primary transition-colors">Access</Link>}
           <a 
             href="#about" 
             onClick={(e) => handleScroll(e, 'about')}

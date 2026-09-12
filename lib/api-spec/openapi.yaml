@@ -529,6 +529,124 @@ paths:
                 $ref: "#/components/schemas/AdminUserList"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /admin/permission-templates:
+    get:
+      operationId: listPermissionTemplates
+      tags: [admin]
+      responses:
+        "200":
+          description: Reusable permission templates
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PermissionTemplateList" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      operationId: createPermissionTemplate
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PermissionTemplateInput" }
+      responses:
+        "201":
+          description: Created permission template
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PermissionTemplate" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /admin/permission-templates/{templateId}:
+    patch:
+      operationId: updatePermissionTemplate
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PermissionTemplateInput" }
+      responses:
+        "200":
+          description: Updated permission template
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PermissionTemplate" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      operationId: deletePermissionTemplate
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/TemplateId"
+      responses:
+        "204": { description: Deleted }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /admin/users/{userId}/permission-template:
+    put:
+      operationId: assignPermissionTemplate
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PermissionTemplateAssignment" }
+      responses:
+        "200":
+          description: Updated user access record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUser" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    delete:
+      operationId: clearPermissionTemplate
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Updated user access record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUser" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /admin/users/{userId}/permission-overrides:
+    put:
+      operationId: setPermissionOverride
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PermissionOverrideInput" }
+      responses:
+        "200":
+          description: Updated user access record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUser" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /admin/users/{userId}/permission-overrides/{permission}:
+    delete:
+      operationId: clearPermissionOverride
+      tags: [admin]
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+        - in: path
+          name: permission
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Updated user access record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUser" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /admin/users/{userId}/roles:
     post:
       operationId: grantAdminUserRole
@@ -711,9 +829,13 @@ components:
       required: true
       schema:
         type: string
-        minLength: 1
-        maxLength: 256
-        pattern: '^[^\s]+$'
+        format: uuid
+        description: Opaque user management UUID.
+    TemplateId:
+      in: path
+      name: templateId
+      required: true
+      schema: { type: string, format: uuid }
     IdempotencyKey:
       in: header
       name: Idempotency-Key
@@ -1341,7 +1463,11 @@ components:
           items:
             type: string
             enum: [reviewer, admin]
-      required: [id, roles]
+        isSuperAdmin: { type: boolean }
+        permissions:
+          type: array
+          items: { type: string }
+      required: [id, roles, isSuperAdmin, permissions]
     ManagedRole:
       type: string
       enum: [reviewer, admin]
@@ -1353,13 +1479,12 @@ components:
           $ref: "#/components/schemas/ManagedRole"
     AdminUser:
       type: object
-      required: [id, createdAt, roles]
+      required: [id, createdAt, roles, isSuperAdmin, permissions, template, overrides]
       properties:
         id:
           type: string
-          minLength: 1
-          maxLength: 256
-          pattern: '^[^\s]+$'
+          format: uuid
+          description: Opaque management UUID; never a Clerk subject or internal users.id.
         createdAt:
           type: string
           format: date-time
@@ -1367,6 +1492,17 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ManagedRole"
+        isSuperAdmin: { type: boolean }
+        permissions:
+          type: array
+          items: { type: string }
+        template:
+          oneOf:
+            - $ref: "#/components/schemas/PermissionTemplateAssignmentInfo"
+            - type: "null"
+        overrides:
+          type: array
+          items: { $ref: "#/components/schemas/PermissionOverride" }
     AdminUserList:
       type: object
       required: [items]
@@ -1375,6 +1511,58 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AdminUser"
+    PermissionTemplateInput:
+      type: object
+      required: [name, permissions]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, maxLength: 500 }
+        permissions:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+    PermissionTemplate:
+      type: object
+      required: [id, name, description, permissions, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        permissions:
+          type: array
+          items: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PermissionTemplateList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PermissionTemplate" }
+    PermissionTemplateAssignment:
+      type: object
+      required: [templateId]
+      properties:
+        templateId: { type: string, format: uuid }
+    PermissionTemplateAssignmentInfo:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+    PermissionOverrideInput:
+      type: object
+      required: [permission, effect]
+      properties:
+        permission: { type: string }
+        effect: { type: string, enum: [allow, deny] }
+    PermissionOverride:
+      type: object
+      required: [permission, effect]
+      properties:
+        permission: { type: string }
+        effect: { type: string, enum: [allow, deny] }
     GuestProgress:
       type: object
       properties:

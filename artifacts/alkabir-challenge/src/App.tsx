@@ -129,6 +129,20 @@ function RequireProfileComplete({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function RequirePermission({ permission, children }: { permission: string; children: ReactNode }) {
+  const { isLoaded, isSignedIn } = useAuth();
+  const { data: authMe, isLoading } = useGetAuthMe({
+    query: { enabled: isLoaded && isSignedIn, queryKey: getGetAuthMeQueryKey() },
+  });
+  if (!isLoaded || (isSignedIn && isLoading)) {
+    return <div className="flex min-h-[100dvh] items-center justify-center bg-background"><div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-r-transparent" /></div>;
+  }
+  if (!isSignedIn) return <Redirect to="/sign-in" />;
+  const user = authMe?.user;
+  if (!user || (!user.isSuperAdmin && !(user.permissions ?? []).includes(permission))) return <Redirect to="/member" />;
+  return <>{children}</>;
+}
+
 function MemberHome() {
   const { isLoaded, isSignedIn } = useAuth();
   if (!isLoaded) return null;
@@ -203,16 +217,16 @@ function Router() {
           </RequireProfileComplete>
         </Route>
         <Route path="/admin/users">
-          <ApplicationPage><AdminUsers /></ApplicationPage>
+          <RequirePermission permission="access.view"><ApplicationPage><AdminUsers /></ApplicationPage></RequirePermission>
         </Route>
         <Route path="/admin/content">
-          <ApplicationPage><AdminContent /></ApplicationPage>
+          <RequirePermission permission="content.view"><ApplicationPage><AdminContent /></ApplicationPage></RequirePermission>
         </Route>
         <Route path="/admin/schedule">
-          <ApplicationPage><AdminSchedule /></ApplicationPage>
+          <RequirePermission permission="schedule.view"><ApplicationPage><AdminSchedule /></ApplicationPage></RequirePermission>
         </Route>
         <Route path="/admin/beta">
-          <ApplicationPage><AdminBeta /></ApplicationPage>
+          <RequirePermission permission="beta.view"><ApplicationPage><AdminBeta /></ApplicationPage></RequirePermission>
         </Route>
         <Route path="/onboarding">
           <ApplicationPage><Onboarding /></ApplicationPage>

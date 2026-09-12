@@ -467,6 +467,8 @@ export interface AuthUser {
      */
   id: string;
   roles: AuthUserRolesItem[];
+  isSuperAdmin: boolean;
+  permissions: string[];
 }
 
 export interface GuestProgress {
@@ -495,19 +497,78 @@ export interface RoleChangeRequest {
   role: ManagedRole;
 }
 
+export interface PermissionTemplateAssignmentInfo {
+  id: string;
+  name: string;
+}
+
+export type PermissionOverrideEffect = typeof PermissionOverrideEffect[keyof typeof PermissionOverrideEffect];
+
+
+export const PermissionOverrideEffect = {
+  allow: 'allow',
+  deny: 'deny',
+} as const;
+
+export interface PermissionOverride {
+  permission: string;
+  effect: PermissionOverrideEffect;
+}
+
 export interface AdminUser {
-  /**
-     * @minLength 1
-     * @maxLength 256
-     * @pattern ^[^\s]+$
-     */
+  /** Opaque management UUID; never a Clerk subject or internal users.id. */
   id: string;
   createdAt: string;
   roles: ManagedRole[];
+  isSuperAdmin: boolean;
+  permissions: string[];
+  template: PermissionTemplateAssignmentInfo | null;
+  overrides: PermissionOverride[];
 }
 
 export interface AdminUserList {
   items: AdminUser[];
+}
+
+export interface PermissionTemplateInput {
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  name: string;
+  /** @maxLength 500 */
+  description?: string;
+  permissions: string[];
+}
+
+export interface PermissionTemplate {
+  id: string;
+  name: string;
+  description: string;
+  permissions: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PermissionTemplateList {
+  items: PermissionTemplate[];
+}
+
+export interface PermissionTemplateAssignment {
+  templateId: string;
+}
+
+export type PermissionOverrideInputEffect = typeof PermissionOverrideInputEffect[keyof typeof PermissionOverrideInputEffect];
+
+
+export const PermissionOverrideInputEffect = {
+  allow: 'allow',
+  deny: 'deny',
+} as const;
+
+export interface PermissionOverrideInput {
+  permission: string;
+  effect: PermissionOverrideInputEffect;
 }
 
 export interface LinkGuestProgressRequest {
@@ -635,3 +696,4 @@ limit?: number;
  */
 offset?: number;
 };
+// generated output

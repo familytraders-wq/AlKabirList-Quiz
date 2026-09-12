@@ -55,6 +55,8 @@ router.get("/auth/me", optionalUser, async (req, res, next) => {
         ? {
             id: user.id,
             roles: user.roles,
+             isSuperAdmin: user.isSuperAdmin,
+             permissions: user.permissions,
           }
         : null,
       guestProgress: {

@@ -50,13 +50,20 @@ export const feedbackStatus = pgEnum("feedback_status", [
 ]);
 
 export const userRoleEnum = pgEnum("user_role", ["reviewer", "admin"]);
+export const permissionOverrideEffect = pgEnum("permission_override_effect", ["allow", "deny"]);
 export const users = pgTable(
   "users",
   {
     // Keep the original text identity type while generating opaque internal IDs.
     id: text("id").default(sql`gen_random_uuid()::text`).primaryKey(),
+    // Stable opaque identifier for operator-facing access management. This
+    // must never be derived from Clerk's subject or the legacy internal id.
+    managementId: uuid("management_id").defaultRandom().notNull(),
     clerkUserId: text("clerk_user_id").unique(),
     role: appRole("role").notNull().default("member"),
+    // Exactly one account is marked by bootstrap-admin. Application code must
+    // treat this flag as protected and never expose a mutation for it.
+    isSuperAdmin: boolean("is_super_admin").notNull().default(false),
     firstName: text("first_name"),
     lastName: text("last_name"),
     email: text("email"),
@@ -70,7 +77,10 @@ export const users = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("users_clerk_user_id_idx").on(table.clerkUserId)],
+  (table) => [
+    uniqueIndex("users_management_id_unique").on(table.managementId),
+    index("users_clerk_user_id_idx").on(table.clerkUserId),
+  ],
 );
 
 export const userRoles = pgTable(
@@ -90,6 +100,47 @@ export const userRoles = pgTable(
       foreignColumns: [users.id],
       name: "user_roles_granted_by_user_id_fk",
     }),
+  ],
+);
+
+/** Reusable, named permission sets maintained by the protected super admin. */
+export const permissionTemplates = pgTable(
+  "permission_templates",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`),
+    createdByUserId: text("created_by_user_id").notNull().references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("permission_templates_name_unique").on(table.name)],
+);
+
+export const userPermissionTemplates = pgTable(
+  "user_permission_templates",
+  {
+    userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+    templateId: uuid("template_id").notNull().references(() => permissionTemplates.id, { onDelete: "restrict" }),
+    assignedByUserId: text("assigned_by_user_id").notNull().references(() => users.id),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+);
+
+export const userPermissionOverrides = pgTable(
+  "user_permission_overrides",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    permission: text("permission").notNull(),
+    effect: permissionOverrideEffect("effect").notNull(),
+    grantedByUserId: text("granted_by_user_id").notNull().references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique("user_permission_overrides_user_permission_unique").on(table.userId, table.permission),
+    index("user_permission_overrides_user_idx").on(table.userId),
   ],
 );
 export const taxonomies = pgTable(
@@ -546,6 +597,8 @@ export type MemberFeedback = typeof memberFeedback.$inferSelect;
 export type OperatorAuditEvent = typeof operatorAuditEvents.$inferSelect;
 
 export type UserRole = typeof userRoles.$inferSelect;
+export type PermissionTemplate = typeof permissionTemplates.$inferSelect;
+export type UserPermissionOverride = typeof userPermissionOverrides.$inferSelect;
 
 export type AnonymousSession = typeof anonymousSessions.$inferSelect;
 

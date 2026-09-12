@@ -41,8 +41,10 @@ export function AdminContent() {
   }
 
   if (!isSignedIn) return <Redirect to="/sign-in" />;
-  const hasAccess = authMe?.user?.roles.includes("admin") || authMe?.user?.roles.includes("reviewer");
-  if (!hasAccess) return <Redirect to="/member" />;
+  const permissions = authMe?.user?.permissions ?? [];
+  const canView = authMe?.user?.isSuperAdmin === true || permissions.includes("content.view");
+  const canManage = authMe?.user?.isSuperAdmin === true || permissions.includes("content.manage");
+  if (!canView) return <Redirect to="/member" />;
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 p-6 md:p-10">
@@ -70,7 +72,7 @@ export function AdminContent() {
         >
           Review Queue
         </button>
-        <button
+        {canManage && <button
           className={classNames(
             "px-4 py-2 font-medium text-sm transition-colors border-b-2",
             activeTab === "intake" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
@@ -78,19 +80,19 @@ export function AdminContent() {
           onClick={() => setActiveTab("intake")}
         >
           Intake & Generation
-        </button>
+        </button>}
       </div>
 
       {activeTab === "bank" && (
-        <BankView statusFilter={bankStatusFilter} onFilterChange={setBankStatusFilter} />
+        <BankView statusFilter={bankStatusFilter} onFilterChange={setBankStatusFilter} canManage={canManage} />
       )}
-      {activeTab === "queue" && <QueueView />}
-      {activeTab === "intake" && <IntakeView />}
+      {activeTab === "queue" && <QueueView canManage={canManage} />}
+      {activeTab === "intake" && canManage && <IntakeView />}
     </main>
   );
 }
 
-function BankView({ statusFilter, onFilterChange }: { statusFilter: QuestionStatus, onFilterChange: (s: QuestionStatus) => void }) {
+function BankView({ statusFilter, onFilterChange, canManage }: { statusFilter: QuestionStatus, onFilterChange: (s: QuestionStatus) => void, canManage: boolean }) {
   const { data: questionsData, isLoading } = useListAdminQuestions({ status: statusFilter, limit: 100 });
   const questions = questionsData?.items ?? [];
   const [editingQuestion, setEditingQuestion] = useState<AdminQuestion | null>(null);
@@ -124,6 +126,7 @@ function BankView({ statusFilter, onFilterChange }: { statusFilter: QuestionStat
               key={q.id} 
               question={q} 
               onEdit={() => setEditingQuestion(q)}
+              canManage={canManage}
             />
           ))}
         </div>
@@ -134,14 +137,14 @@ function BankView({ statusFilter, onFilterChange }: { statusFilter: QuestionStat
           <DialogHeader>
             <DialogTitle>Edit Draft Question</DialogTitle>
           </DialogHeader>
-          {editingQuestion && <ManualDraftForm key={editingQuestion.id} existingQuestion={editingQuestion} onClose={() => setEditingQuestion(null)} />}
+          {editingQuestion && canManage && <ManualDraftForm key={editingQuestion.id} existingQuestion={editingQuestion} onClose={() => setEditingQuestion(null)} />}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
 
-function QueueView() {
+function QueueView({ canManage }: { canManage: boolean }) {
   const { data: questionsData, isLoading } = useListAdminQuestions({ status: "pending_review", limit: 50 });
   const questions = questionsData?.items ?? [];
 
@@ -156,7 +159,7 @@ function QueueView() {
       ) : (
         <div className="grid gap-4">
           {questions.map(q => (
-            <QuestionCard key={q.id} question={q} isReviewMode />
+            <QuestionCard key={q.id} question={q} isReviewMode canManage={canManage} />
           ))}
         </div>
       )}
@@ -164,7 +167,7 @@ function QueueView() {
   );
 }
 
-function QuestionCard({ question, isReviewMode = false, onEdit }: { question: AdminQuestion, isReviewMode?: boolean, onEdit?: () => void }) {
+function QuestionCard({ question, isReviewMode = false, onEdit, canManage = true }: { question: AdminQuestion, isReviewMode?: boolean, onEdit?: () => void, canManage?: boolean }) {
   const queryClient = useQueryClient();
   const reviewMutation = useReviewQuestion();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -208,7 +211,7 @@ function QuestionCard({ question, isReviewMode = false, onEdit }: { question: Ad
           </div>
           <p className="font-serif text-lg font-medium text-foreground">{question.prompt}</p>
         </div>
-        {!isReviewMode && onEdit && (question.status === "draft" || question.status === "rejected") && (
+        {!isReviewMode && canManage && onEdit && (question.status === "draft" || question.status === "rejected") && (
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={onEdit}>Edit</Button>
             <Button 
@@ -261,7 +264,7 @@ function QuestionCard({ question, isReviewMode = false, onEdit }: { question: Ad
         </div>
       )}
 
-      {isReviewMode && (
+      {isReviewMode && canManage && (
         <div className="pt-4 border-t border-border flex gap-3">
           <Button 
             size="sm" 

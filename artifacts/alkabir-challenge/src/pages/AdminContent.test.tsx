@@ -13,6 +13,7 @@ vi.mock("@clerk/react", () => ({
 const mockMutate = vi.fn();
 const mockUpdateMutate = vi.fn();
 const mockInvalidateQueries = vi.fn();
+let authPermissions = ["content.view", "content.manage"];
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = await importOriginal<any>();
@@ -30,7 +31,7 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
     ...mod,
     useGetAuthMe: () => ({
       data: {
-        user: { roles: ["admin"] },
+        user: { roles: ["admin"], isSuperAdmin: false, permissions: authPermissions },
         authenticated: true,
       },
       isLoading: false,
@@ -85,9 +86,22 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
 describe("AdminContent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authPermissions = ["content.view", "content.manage"];
   });
   afterEach(() => {
     cleanup();
+  });
+
+  it("renders read-only content for view-only permissions", async () => {
+    authPermissions = ["content.view"];
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AdminContent />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Content Workspace")).toBeInTheDocument());
+    expect(screen.queryByText("Intake & Generation")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
   it("renders the content workspace for admins", async () => {

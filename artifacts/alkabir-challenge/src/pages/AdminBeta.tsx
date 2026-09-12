@@ -39,10 +39,10 @@ export function AdminBeta() {
     query: { enabled: isLoaded && isSignedIn, queryKey: getGetAuthMeQueryKey() }
   });
 
-  const roles = authMe?.user?.roles || [];
-  const isAdmin = roles.includes("admin");
-  const isReviewer = roles.includes("reviewer");
-  const canAccess = isAdmin || isReviewer;
+  const permissions = authMe?.user?.permissions ?? [];
+  const canView = authMe?.user?.isSuperAdmin === true || permissions.includes("beta.view");
+  const canManage = authMe?.user?.isSuperAdmin === true || permissions.includes("beta.manage");
+  const canAudit = authMe?.user?.isSuperAdmin === true || permissions.includes("access.view");
 
   if (!isLoaded || isAuthLoading) {
     return (
@@ -53,7 +53,7 @@ export function AdminBeta() {
   }
 
   if (!isSignedIn) return <Redirect to="/sign-in" />;
-  if (!canAccess) return <Redirect to="/member" />;
+  if (!canView) return <Redirect to="/member" />;
 
   return (
     <div className="min-h-[100dvh] bg-background pb-20">
@@ -72,7 +72,7 @@ export function AdminBeta() {
             <TabsTrigger value="feedback" className="rounded-lg px-6 py-2.5 data-[state=active]:bg-white data-[state=active]:shadow-sm">
               <FileText className="mr-2 h-4 w-4" /> Feedback
             </TabsTrigger>
-            {isAdmin && (
+            {canAudit && (
               <TabsTrigger value="audit" className="rounded-lg px-6 py-2.5 data-[state=active]:bg-white data-[state=active]:shadow-sm">
                 <Clock className="mr-2 h-4 w-4" /> Audit Log
               </TabsTrigger>
@@ -84,10 +84,10 @@ export function AdminBeta() {
           </TabsContent>
           
           <TabsContent value="feedback">
-            <BetaFeedbackTab />
+           <BetaFeedbackTab canManage={canManage} />
           </TabsContent>
 
-          {isAdmin && (
+          {canAudit && (
             <TabsContent value="audit">
               <BetaAuditTab />
             </TabsContent>
@@ -154,7 +154,7 @@ function MetricCard({ title, value, alert = false }: { title: string; value: num
   );
 }
 
-export function BetaFeedbackTab() {
+export function BetaFeedbackTab({ canManage = true }: { canManage?: boolean }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [statusFilter, setStatusFilter] = useState<FeedbackStatus | "all">("open");
@@ -229,9 +229,10 @@ export function BetaFeedbackTab() {
           <div className="py-12 text-center text-muted-foreground">No feedback matches these filters.</div>
         ) : (
           data?.items.map(item => (
-            <FeedbackModerationCard 
+                <FeedbackModerationCard
               key={item.id} 
               item={item} 
+                  canManage={canManage}
               isPending={moderateFeedback.isPending}
               onModerate={(status, note) => {
                 moderateFeedback.mutate({
@@ -247,7 +248,7 @@ export function BetaFeedbackTab() {
   );
 }
 
-function FeedbackModerationCard({ item, isPending, onModerate }: { item: any, isPending: boolean, onModerate: (status: FeedbackStatus, note?: string) => void }) {
+function FeedbackModerationCard({ item, isPending, onModerate, canManage = true }: { item: any, isPending: boolean, onModerate: (status: FeedbackStatus, note?: string) => void, canManage?: boolean }) {
   const [note, setNote] = useState(item.resolutionNote || "");
   const [isEditing, setIsEditing] = useState(false);
 
@@ -277,7 +278,7 @@ function FeedbackModerationCard({ item, isPending, onModerate }: { item: any, is
             )}
           </div>
           
-          <div className="flex items-center gap-2">
+          {canManage && <div className="flex items-center gap-2">
             {item.status === "open" && (
               <Button size="sm" variant="outline" onClick={() => onModerate("in_review")} disabled={isPending}>
                 Start Review
@@ -293,12 +294,12 @@ function FeedbackModerationCard({ item, isPending, onModerate }: { item: any, is
                 Dismiss
               </Button>
             )}
-          </div>
+          </div>}
         </div>
         
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{item.message}</p>
 
-        {isEditing && (
+        {canManage && isEditing && (
           <div className="mt-4 rounded-lg border border-border bg-secondary/30 p-4 animate-in fade-in">
             <label className="mb-2 block text-sm font-medium">Resolution Note (visible to user)</label>
             <Textarea 

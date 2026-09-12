@@ -12,6 +12,7 @@ vi.mock("@clerk/react", () => ({
 
 const mockCreateQuiz = vi.fn();
 const mockInvalidateQueries = vi.fn();
+let authPermissions = ["schedule.view", "schedule.manage"];
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = await importOriginal<any>();
@@ -29,7 +30,7 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
     ...mod,
     useGetAuthMe: () => ({
       data: {
-        user: { roles: ["admin"] },
+        user: { roles: ["admin"], isSuperAdmin: false, permissions: authPermissions },
         authenticated: true,
       },
       isLoading: false,
@@ -64,9 +65,22 @@ vi.mock("@workspace/api-client-react", async (importOriginal) => {
 describe("AdminSchedule", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authPermissions = ["schedule.view", "schedule.manage"];
   });
   afterEach(() => {
     cleanup();
+  });
+
+  it("hides schedule mutation controls for view-only permissions", async () => {
+    authPermissions = ["schedule.view"];
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AdminSchedule />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("Schedule Quizzes")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Create Quiz" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
   });
 
   it("renders the schedule workspace for admins", async () => {

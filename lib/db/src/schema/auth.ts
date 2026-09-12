@@ -20,7 +20,9 @@ export const users = pgTable(
   {
     // Clerk user subjects are opaque text identifiers, not UUIDs.
     id: text("id").primaryKey(),
+    managementId: uuid("management_id").defaultRandom().notNull(),
     clerkUserId: text("clerk_user_id").notNull().unique(),
+    isSuperAdmin: boolean("is_super_admin").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

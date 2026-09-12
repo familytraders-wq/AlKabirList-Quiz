@@ -52,6 +52,11 @@ import type {
   MemberProfile,
   MemberProfileUpdate,
   NotFoundResponse,
+  PermissionOverrideInput,
+  PermissionTemplate,
+  PermissionTemplateAssignment,
+  PermissionTemplateInput,
+  PermissionTemplateList,
   QuestionWriteRequest,
   QuizAnalytics,
   QuizConfig,
@@ -2399,6 +2404,614 @@ export function useListAdminUsers<TData = Awaited<ReturnType<typeof listAdminUse
 
 
 
+export const getListPermissionTemplatesUrl = () => {
+
+
+
+
+  return `/api/admin/permission-templates`
+}
+
+export const listPermissionTemplates = async ( options?: Parameters<typeof customFetch>[1]): Promise<PermissionTemplateList> => {
+
+  return customFetch<PermissionTemplateList>(getListPermissionTemplatesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPermissionTemplatesQueryKey = () => {
+    return [
+    `/api/admin/permission-templates`
+    ] as const;
+    }
+
+
+export const getListPermissionTemplatesQueryOptions = <TData = Awaited<ReturnType<typeof listPermissionTemplates>>, TError = ErrorType<ForbiddenResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPermissionTemplates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPermissionTemplatesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPermissionTemplates>>> = ({ signal }) => listPermissionTemplates({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPermissionTemplates>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPermissionTemplatesQueryResult = NonNullable<Awaited<ReturnType<typeof listPermissionTemplates>>>
+export type ListPermissionTemplatesQueryError = ErrorType<ForbiddenResponse>
+
+
+
+export function useListPermissionTemplates<TData = Awaited<ReturnType<typeof listPermissionTemplates>>, TError = ErrorType<ForbiddenResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPermissionTemplates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPermissionTemplatesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreatePermissionTemplateUrl = () => {
+
+
+
+
+  return `/api/admin/permission-templates`
+}
+
+export const createPermissionTemplate = async (permissionTemplateInput: PermissionTemplateInput, options?: Parameters<typeof customFetch>[1]): Promise<PermissionTemplate> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PermissionTemplate>(getCreatePermissionTemplateUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(permissionTemplateInput)
+  }
+);}
+
+
+
+
+
+export const getCreatePermissionTemplateMutationKey = () => ['createPermissionTemplate'] as const;
+
+export const getCreatePermissionTemplateMutationOptions = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPermissionTemplate>>, TError,CreatePermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPermissionTemplate>>, TError,CreatePermissionTemplateMutationVariables, TContext> => {
+
+const mutationKey = getCreatePermissionTemplateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPermissionTemplate>>, CreatePermissionTemplateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createPermissionTemplate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePermissionTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof createPermissionTemplate>>>
+    export type CreatePermissionTemplateMutationBody = BodyType<PermissionTemplateInput>
+    export type CreatePermissionTemplateMutationError = ErrorType<ForbiddenResponse>
+    export type CreatePermissionTemplateMutationVariables = {data: BodyType<PermissionTemplateInput>}
+
+    export const useCreatePermissionTemplate = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPermissionTemplate>>, TError,CreatePermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPermissionTemplate>>,
+        TError,
+        CreatePermissionTemplateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreatePermissionTemplateMutationOptions(options));
+    }
+
+export const getUpdatePermissionTemplateUrl = (templateId: string,) => {
+
+
+
+
+  return `/api/admin/permission-templates/${templateId}`
+}
+
+export const updatePermissionTemplate = async (templateId: string,
+    permissionTemplateInput: PermissionTemplateInput, options?: Parameters<typeof customFetch>[1]): Promise<PermissionTemplate> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<PermissionTemplate>(getUpdatePermissionTemplateUrl(templateId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(permissionTemplateInput)
+  }
+);}
+
+
+
+
+
+export const getUpdatePermissionTemplateMutationKey = () => ['updatePermissionTemplate'] as const;
+
+export const getUpdatePermissionTemplateMutationOptions = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePermissionTemplate>>, TError,UpdatePermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updatePermissionTemplate>>, TError,UpdatePermissionTemplateMutationVariables, TContext> => {
+
+const mutationKey = getUpdatePermissionTemplateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updatePermissionTemplate>>, UpdatePermissionTemplateMutationVariables> = (props) => {
+          const {templateId,data} = props ?? {};
+
+          return  updatePermissionTemplate(templateId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdatePermissionTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof updatePermissionTemplate>>>
+    export type UpdatePermissionTemplateMutationBody = BodyType<PermissionTemplateInput>
+    export type UpdatePermissionTemplateMutationError = ErrorType<ForbiddenResponse>
+    export type UpdatePermissionTemplateMutationVariables = {templateId: string;data: BodyType<PermissionTemplateInput>}
+
+    export const useUpdatePermissionTemplate = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updatePermissionTemplate>>, TError,UpdatePermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updatePermissionTemplate>>,
+        TError,
+        UpdatePermissionTemplateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdatePermissionTemplateMutationOptions(options));
+    }
+
+export const getDeletePermissionTemplateUrl = (templateId: string,) => {
+
+
+
+
+  return `/api/admin/permission-templates/${templateId}`
+}
+
+export const deletePermissionTemplate = async (templateId: string, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeletePermissionTemplateUrl(templateId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeletePermissionTemplateMutationKey = () => ['deletePermissionTemplate'] as const;
+
+export const getDeletePermissionTemplateMutationOptions = <TError = ErrorType<ForbiddenResponse | ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePermissionTemplate>>, TError,DeletePermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deletePermissionTemplate>>, TError,DeletePermissionTemplateMutationVariables, TContext> => {
+
+const mutationKey = getDeletePermissionTemplateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deletePermissionTemplate>>, DeletePermissionTemplateMutationVariables> = (props) => {
+          const {templateId} = props ?? {};
+
+          return  deletePermissionTemplate(templateId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeletePermissionTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof deletePermissionTemplate>>>
+
+    export type DeletePermissionTemplateMutationError = ErrorType<ForbiddenResponse | ConflictResponse>
+    export type DeletePermissionTemplateMutationVariables = {templateId: string}
+
+    export const useDeletePermissionTemplate = <TError = ErrorType<ForbiddenResponse | ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deletePermissionTemplate>>, TError,DeletePermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deletePermissionTemplate>>,
+        TError,
+        DeletePermissionTemplateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeletePermissionTemplateMutationOptions(options));
+    }
+
+export const getAssignPermissionTemplateUrl = (userId: string,) => {
+
+
+
+
+  return `/api/admin/users/${userId}/permission-template`
+}
+
+export const assignPermissionTemplate = async (userId: string,
+    permissionTemplateAssignment: PermissionTemplateAssignment, options?: Parameters<typeof customFetch>[1]): Promise<AdminUser> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdminUser>(getAssignPermissionTemplateUrl(userId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(permissionTemplateAssignment)
+  }
+);}
+
+
+
+
+
+export const getAssignPermissionTemplateMutationKey = () => ['assignPermissionTemplate'] as const;
+
+export const getAssignPermissionTemplateMutationOptions = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assignPermissionTemplate>>, TError,AssignPermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof assignPermissionTemplate>>, TError,AssignPermissionTemplateMutationVariables, TContext> => {
+
+const mutationKey = getAssignPermissionTemplateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof assignPermissionTemplate>>, AssignPermissionTemplateMutationVariables> = (props) => {
+          const {userId,data} = props ?? {};
+
+          return  assignPermissionTemplate(userId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AssignPermissionTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof assignPermissionTemplate>>>
+    export type AssignPermissionTemplateMutationBody = BodyType<PermissionTemplateAssignment>
+    export type AssignPermissionTemplateMutationError = ErrorType<ForbiddenResponse>
+    export type AssignPermissionTemplateMutationVariables = {userId: string;data: BodyType<PermissionTemplateAssignment>}
+
+    export const useAssignPermissionTemplate = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof assignPermissionTemplate>>, TError,AssignPermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof assignPermissionTemplate>>,
+        TError,
+        AssignPermissionTemplateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getAssignPermissionTemplateMutationOptions(options));
+    }
+
+export const getClearPermissionTemplateUrl = (userId: string,) => {
+
+
+
+
+  return `/api/admin/users/${userId}/permission-template`
+}
+
+export const clearPermissionTemplate = async (userId: string, options?: Parameters<typeof customFetch>[1]): Promise<AdminUser> => {
+
+  return customFetch<AdminUser>(getClearPermissionTemplateUrl(userId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getClearPermissionTemplateMutationKey = () => ['clearPermissionTemplate'] as const;
+
+export const getClearPermissionTemplateMutationOptions = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearPermissionTemplate>>, TError,ClearPermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearPermissionTemplate>>, TError,ClearPermissionTemplateMutationVariables, TContext> => {
+
+const mutationKey = getClearPermissionTemplateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearPermissionTemplate>>, ClearPermissionTemplateMutationVariables> = (props) => {
+          const {userId} = props ?? {};
+
+          return  clearPermissionTemplate(userId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearPermissionTemplateMutationResult = NonNullable<Awaited<ReturnType<typeof clearPermissionTemplate>>>
+
+    export type ClearPermissionTemplateMutationError = ErrorType<ForbiddenResponse>
+    export type ClearPermissionTemplateMutationVariables = {userId: string}
+
+    export const useClearPermissionTemplate = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearPermissionTemplate>>, TError,ClearPermissionTemplateMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearPermissionTemplate>>,
+        TError,
+        ClearPermissionTemplateMutationVariables,
+        TContext
+      > => {
+      return useMutation(getClearPermissionTemplateMutationOptions(options));
+    }
+
+export const getSetPermissionOverrideUrl = (userId: string,) => {
+
+
+
+
+  return `/api/admin/users/${userId}/permission-overrides`
+}
+
+export const setPermissionOverride = async (userId: string,
+    permissionOverrideInput: PermissionOverrideInput, options?: Parameters<typeof customFetch>[1]): Promise<AdminUser> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdminUser>(getSetPermissionOverrideUrl(userId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(permissionOverrideInput)
+  }
+);}
+
+
+
+
+
+export const getSetPermissionOverrideMutationKey = () => ['setPermissionOverride'] as const;
+
+export const getSetPermissionOverrideMutationOptions = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setPermissionOverride>>, TError,SetPermissionOverrideMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setPermissionOverride>>, TError,SetPermissionOverrideMutationVariables, TContext> => {
+
+const mutationKey = getSetPermissionOverrideMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setPermissionOverride>>, SetPermissionOverrideMutationVariables> = (props) => {
+          const {userId,data} = props ?? {};
+
+          return  setPermissionOverride(userId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetPermissionOverrideMutationResult = NonNullable<Awaited<ReturnType<typeof setPermissionOverride>>>
+    export type SetPermissionOverrideMutationBody = BodyType<PermissionOverrideInput>
+    export type SetPermissionOverrideMutationError = ErrorType<ForbiddenResponse>
+    export type SetPermissionOverrideMutationVariables = {userId: string;data: BodyType<PermissionOverrideInput>}
+
+    export const useSetPermissionOverride = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setPermissionOverride>>, TError,SetPermissionOverrideMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setPermissionOverride>>,
+        TError,
+        SetPermissionOverrideMutationVariables,
+        TContext
+      > => {
+      return useMutation(getSetPermissionOverrideMutationOptions(options));
+    }
+
+export const getClearPermissionOverrideUrl = (userId: string,
+    permission: string,) => {
+
+
+
+
+  return `/api/admin/users/${userId}/permission-overrides/${permission}`
+}
+
+export const clearPermissionOverride = async (userId: string,
+    permission: string, options?: Parameters<typeof customFetch>[1]): Promise<AdminUser> => {
+
+  return customFetch<AdminUser>(getClearPermissionOverrideUrl(userId,permission),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getClearPermissionOverrideMutationKey = () => ['clearPermissionOverride'] as const;
+
+export const getClearPermissionOverrideMutationOptions = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearPermissionOverride>>, TError,ClearPermissionOverrideMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof clearPermissionOverride>>, TError,ClearPermissionOverrideMutationVariables, TContext> => {
+
+const mutationKey = getClearPermissionOverrideMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof clearPermissionOverride>>, ClearPermissionOverrideMutationVariables> = (props) => {
+          const {userId,permission} = props ?? {};
+
+          return  clearPermissionOverride(userId,permission,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ClearPermissionOverrideMutationResult = NonNullable<Awaited<ReturnType<typeof clearPermissionOverride>>>
+
+    export type ClearPermissionOverrideMutationError = ErrorType<ForbiddenResponse>
+    export type ClearPermissionOverrideMutationVariables = {userId: string;permission: string}
+
+    export const useClearPermissionOverride = <TError = ErrorType<ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof clearPermissionOverride>>, TError,ClearPermissionOverrideMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof clearPermissionOverride>>,
+        TError,
+        ClearPermissionOverrideMutationVariables,
+        TContext
+      > => {
+      return useMutation(getClearPermissionOverrideMutationOptions(options));
+    }
+
 export const getGrantAdminUserRoleUrl = (userId: string,) => {
 
 
@@ -2994,3 +3607,4 @@ export const usePatchMyProfile = <TError = ErrorType<BadRequestResponse | Unauth
       > => {
       return useMutation(getPatchMyProfileMutationOptions(options));
     }
+// generated output

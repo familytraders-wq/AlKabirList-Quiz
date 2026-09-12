@@ -30,6 +30,19 @@ import {
   UpdateAdminQuizResponse,
   PreviewAdminQuizParams,
   PreviewAdminQuizResponse,
+  ListPermissionTemplatesResponse,
+  CreatePermissionTemplateBody,
+  CreatePermissionTemplateResponse,
+  UpdatePermissionTemplateParams,
+  UpdatePermissionTemplateBody,
+  UpdatePermissionTemplateResponse,
+  DeletePermissionTemplateParams,
+  AssignPermissionTemplateParams,
+  AssignPermissionTemplateBody,
+  SetPermissionOverrideParams,
+  SetPermissionOverrideBody,
+  ClearPermissionTemplateParams,
+  ClearPermissionOverrideParams,
 } from "@workspace/api-zod";
 import {
   questionAudiences,
@@ -43,10 +56,14 @@ import {
   userRoles,
   quizzes,
   quizQuestions,
+  permissionTemplates,
+  userPermissionTemplates,
+  userPermissionOverrides,
 } from "@workspace/db/schema";
-import { getOwner, requireAdmin, requireReviewer } from "../middlewares/auth";
+import { getOwner, requireAdmin, requireReviewer, requirePermission, requireSuperAdmin } from "../middlewares/auth";
 import { csrfProtection } from "../lib/security";
 import { writeAuditEvent } from "../lib/audit";
+import { getPermissionState, isPermission, PERMISSIONS } from "../lib/permissions";
 
 const router: IRouter = Router();
 
@@ -149,6 +166,8 @@ async function insertQuestionVersion(
 }
 
 router.use("/admin", requireReviewer);
+router.use("/admin/quiz/generation-runs", requirePermission("content.manage"));
+router.use("/admin/quiz/analytics", requirePermission("beta.view"));
 
 const roleNames = ["reviewer", "admin"] as const;
 type ManagedRole = (typeof roleNames)[number];
@@ -161,20 +180,37 @@ function parseManagedRole(value: unknown): ManagedRole | undefined {
 
 async function listInternalUsers() {
   const rows = await db
-    .select({ id: users.id, createdAt: users.createdAt, role: userRoles.role })
+    .select({ internalId: users.id, managementId: users.managementId, createdAt: users.createdAt, role: userRoles.role })
     .from(users)
     .leftJoin(userRoles, sql`${users.id} = ${userRoles.userId}::text`)
     .orderBy(asc(users.createdAt), asc(users.id));
-  const grouped = new Map<string, { id: string; createdAt: Date; roles: ManagedRole[] }>();
+  const grouped = new Map<string, { internalId: string; managementId: string; createdAt: Date; roles: ManagedRole[] }>();
   for (const row of rows) {
-    const existing = grouped.get(row.id) ?? { id: row.id, createdAt: row.createdAt, roles: [] };
+    const existing = grouped.get(row.internalId) ?? {
+      internalId: row.internalId,
+      managementId: row.managementId,
+      createdAt: row.createdAt,
+      roles: [],
+    };
     if (row.role) existing.roles.push(row.role);
-    grouped.set(row.id, existing);
+    grouped.set(row.internalId, existing);
   }
-  return [...grouped.values()];
+  return Promise.all([...grouped.values()].map(async (entry) => {
+    const [account] = await db
+      .select({ isSuperAdmin: users.isSuperAdmin })
+      .from(users)
+      .where(eq(users.id, entry.internalId));
+    return {
+      id: entry.managementId,
+      isSuperAdmin: account?.isSuperAdmin ?? false,
+      createdAt: entry.createdAt,
+      roles: entry.roles,
+      ...(await getPermissionState(entry.internalId, entry.roles, account?.isSuperAdmin ?? false)),
+    };
+  }));
 }
 
-router.get("/admin/users", requireAdmin, async (_req, res, next) => {
+router.get("/admin/users", requirePermission("access.view"), async (_req, res, next) => {
   try {
     res.json({ items: await listInternalUsers() });
   } catch (error) {
@@ -183,7 +219,7 @@ router.get("/admin/users", requireAdmin, async (_req, res, next) => {
 });
 
 async function changeUserRole(
-  userId: string,
+  managementId: string,
   actorId: string,
   role: ManagedRole,
   action: "grant" | "revoke",
@@ -193,18 +229,22 @@ async function changeUserRole(
     // observe a safe admin count and remove the final administrator.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('alkabir-admin-role-mutations'))`);
     const [actorRole] = await tx
-      .select({ id: userRoles.id })
-      .from(userRoles)
-      .where(and(sql`${userRoles.userId}::text = ${actorId}`, eq(userRoles.role, "admin")))
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.id, actorId), eq(users.isSuperAdmin, true)))
       .limit(1);
     if (!actorRole) return { error: "ACTOR_NOT_ADMIN" as const };
-    const [target] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId));
+    const [target] = await tx
+      .select({ id: users.id, managementId: users.managementId, isSuperAdmin: users.isSuperAdmin })
+      .from(users)
+      .where(eq(users.managementId, managementId));
     if (!target) return { error: "NOT_FOUND" as const };
-    if (action === "revoke" && role === "admin" && userId === actorId) {
+    if (target.isSuperAdmin) return { error: "PROTECTED_SUPER_ADMIN" as const };
+    if (action === "revoke" && role === "admin" && target.id === actorId) {
       return { error: "SELF_ADMIN_REVOKE" as const };
     }
     if (action === "grant") {
-      await tx.insert(userRoles).values({ userId, role, grantedByUserId: actorId }).onConflictDoNothing({
+       await tx.insert(userRoles).values({ userId: target.id, role, grantedByUserId: actorId }).onConflictDoNothing({
         target: [userRoles.userId, userRoles.role],
       });
     } else {
@@ -215,13 +255,13 @@ async function changeUserRole(
           .where(eq(userRoles.role, "admin"));
         if (Number(total) <= 1) return { error: "LAST_ADMIN" as const };
       }
-      await tx.delete(userRoles).where(and(eq(userRoles.userId, userId), eq(userRoles.role, role)));
+       await tx.delete(userRoles).where(and(eq(userRoles.userId, target.id), eq(userRoles.role, role)));
     }
     await writeAuditEvent(tx, {
       actorId,
       action: action === "grant" ? "role_granted" : "role_revoked",
       entityType: "user_role",
-      entityId: userId,
+       entityId: target.managementId,
       metadata: { role },
     });
     return { user: target };
@@ -240,24 +280,231 @@ async function roleMutation(req: Request, res: Response, next: NextFunction, act
     if (!role) return badRequest(res, "Role must be exactly reviewer or admin");
     const result = await changeUserRole(userId, actorId, role, action);
     if ("error" in result) {
-      if (result.error === "ACTOR_NOT_ADMIN") return res.status(403).json({ code: "FORBIDDEN", message: "Administrator role is required" });
+      if (result.error === "ACTOR_NOT_ADMIN") return res.status(403).json({ code: "FORBIDDEN", message: "Super Administrator role is required" });
       if (result.error === "NOT_FOUND") return res.status(404).json({ code: "NOT_FOUND", message: "User not found" });
+      if (result.error === "PROTECTED_SUPER_ADMIN") return res.status(409).json({ code: "PROTECTED_SUPER_ADMIN", message: "The protected Super Admin cannot be changed" });
       if (result.error === "SELF_ADMIN_REVOKE") return res.status(409).json({ code: "SELF_ADMIN_REVOKE", message: "You cannot revoke your own admin role" });
       return res.status(409).json({ code: "LAST_ADMIN", message: "At least one administrator must remain" });
     }
     const items = await listInternalUsers();
     const item = items.find((entry) => entry.id === userId);
-    const output = { id: item?.id, roles: item?.roles ?? [], createdAt: item?.createdAt };
+    const output = item ?? {
+      id: userId,
+      roles: [],
+      createdAt: new Date(),
+      isSuperAdmin: false,
+      permissions: [],
+      template: null,
+      overrides: [],
+    };
     res.json((action === "grant" ? GrantAdminUserRoleResponse : RevokeAdminUserRoleResponse).parse(output));
   } catch (error) {
     next(error);
   }
 }
 
-router.post("/admin/users/:userId/roles", requireAdmin, csrfProtection, (req, res, next) => roleMutation(req, res, next, "grant"));
-router.delete("/admin/users/:userId/roles", requireAdmin, csrfProtection, (req, res, next) => roleMutation(req, res, next, "revoke"));
+router.post("/admin/users/:userId/roles", requireSuperAdmin, csrfProtection, (req, res, next) => roleMutation(req, res, next, "grant"));
+router.delete("/admin/users/:userId/roles", requireSuperAdmin, csrfProtection, (req, res, next) => roleMutation(req, res, next, "revoke"));
 
-router.get("/admin/quiz/questions", async (req, res, next) => {
+function validPermissions(values: string[]) {
+  return values.length === new Set(values).size && values.every((value) => isPermission(value));
+}
+
+router.get("/admin/permission-templates", requireSuperAdmin, async (_req, res, next) => {
+  try {
+    const items = await db.select().from(permissionTemplates).orderBy(asc(permissionTemplates.name));
+    res.json(ListPermissionTemplatesResponse.parse({ items }));
+  } catch (error) { next(error); }
+});
+
+router.post("/admin/permission-templates", requireSuperAdmin, csrfProtection, async (req, res, next) => {
+  try {
+    const parsed = CreatePermissionTemplateBody.safeParse(req.body);
+    const actorId = getOwner(res).userId;
+    if (!parsed.success || !actorId || !validPermissions(parsed.data.permissions)) {
+      badRequest(res, "Invalid permission template");
+      return;
+    }
+    const [template] = await db.transaction(async (tx) => {
+      const created = await tx.insert(permissionTemplates).values({
+        name: parsed.data.name,
+        description: parsed.data.description ?? "",
+        permissions: parsed.data.permissions,
+        createdByUserId: actorId,
+      }).returning();
+      if (created[0]) await writeAuditEvent(tx, {
+        actorId, action: "permission_template_created", entityType: "permission_template",
+        entityId: created[0].id, metadata: { permissionCount: parsed.data.permissions.length },
+      });
+      return created;
+    });
+    res.status(201).json(CreatePermissionTemplateResponse.parse(template));
+  } catch (error) { next(error); }
+});
+
+router.patch("/admin/permission-templates/:templateId", requireSuperAdmin, csrfProtection, async (req, res, next) => {
+  try {
+    const params = UpdatePermissionTemplateParams.safeParse(req.params);
+    const parsed = UpdatePermissionTemplateBody.safeParse(req.body);
+    const actorId = getOwner(res).userId;
+    if (!params.success || !parsed.success || !actorId || !validPermissions(parsed.data.permissions)) {
+      badRequest(res, "Invalid permission template");
+      return;
+    }
+    const [template] = await db.transaction(async (tx) => {
+      const updated = await tx.update(permissionTemplates).set({
+        name: parsed.data.name, description: parsed.data.description ?? "",
+        permissions: parsed.data.permissions, updatedAt: new Date(),
+      }).where(eq(permissionTemplates.id, params.data.templateId)).returning();
+      if (updated[0]) await writeAuditEvent(tx, {
+        actorId, action: "permission_template_updated", entityType: "permission_template",
+        entityId: updated[0].id, metadata: { permissionCount: parsed.data.permissions.length },
+      });
+      return updated;
+    });
+    if (!template) { res.status(404).json({ code: "NOT_FOUND", message: "Template not found" }); return; }
+    res.json(UpdatePermissionTemplateResponse.parse(template));
+  } catch (error) { next(error); }
+});
+
+router.delete("/admin/permission-templates/:templateId", requireSuperAdmin, csrfProtection, async (req, res, next) => {
+  try {
+    const params = DeletePermissionTemplateParams.safeParse(req.params);
+    const actorId = getOwner(res).userId;
+    if (!params.success || !actorId) { badRequest(res, "Invalid template id"); return; }
+    const [assigned] = await db.select({ userId: userPermissionTemplates.userId })
+      .from(userPermissionTemplates)
+      .where(eq(userPermissionTemplates.templateId, params.data.templateId))
+      .limit(1);
+    if (assigned) {
+      res.status(409).json({ code: "TEMPLATE_ASSIGNED", message: "The permission template is assigned to a user and cannot be deleted" });
+      return;
+    }
+    let template;
+    try {
+      [template] = await db.transaction(async (tx) => {
+        const deleted = await tx.delete(permissionTemplates)
+          .where(eq(permissionTemplates.id, params.data.templateId)).returning({ id: permissionTemplates.id });
+        if (deleted[0]) await writeAuditEvent(tx, {
+          actorId, action: "permission_template_deleted", entityType: "permission_template",
+          entityId: deleted[0].id, metadata: {},
+        });
+        return deleted;
+      });
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "23503") {
+        res.status(409).json({ code: "TEMPLATE_ASSIGNED", message: "The permission template is assigned to a user and cannot be deleted" });
+        return;
+      }
+      throw error;
+    }
+    if (!template) { res.status(404).json({ code: "NOT_FOUND", message: "Template not found" }); return; }
+    res.status(204).send();
+  } catch (error) { next(error); }
+});
+
+async function protectedTarget(managementId: string) {
+  const [target] = await db
+    .select({ id: users.id, managementId: users.managementId, isSuperAdmin: users.isSuperAdmin })
+    .from(users)
+    .where(eq(users.managementId, managementId));
+  return target;
+}
+
+async function accessRecord(managementId: string) {
+  const rows = await listInternalUsers();
+  return rows.find((item) => item.id === managementId);
+}
+
+router.put("/admin/users/:userId/permission-template", requireSuperAdmin, csrfProtection, async (req, res, next) => {
+  try {
+    const params = AssignPermissionTemplateParams.safeParse(req.params);
+    const body = AssignPermissionTemplateBody.safeParse(req.body);
+    const actorId = getOwner(res).userId;
+    if (!params.success || !body.success || !actorId) { badRequest(res, "Invalid template assignment"); return; }
+    const target = await protectedTarget(params.data.userId);
+    if (!target) { res.status(404).json({ code: "NOT_FOUND", message: "User not found" }); return; }
+    if (target.isSuperAdmin) { res.status(409).json({ code: "PROTECTED_SUPER_ADMIN", message: "The protected Super Admin cannot be changed" }); return; }
+    const [template] = await db.select({ id: permissionTemplates.id }).from(permissionTemplates).where(eq(permissionTemplates.id, body.data.templateId));
+    if (!template) { res.status(404).json({ code: "NOT_FOUND", message: "Template not found" }); return; }
+    await db.transaction(async (tx) => {
+      await tx.insert(userPermissionTemplates).values({
+        userId: target.id, templateId: template.id, assignedByUserId: actorId,
+      }).onConflictDoUpdate({
+        target: userPermissionTemplates.userId,
+        set: { templateId: template.id, assignedByUserId: actorId, assignedAt: new Date() },
+      });
+      await writeAuditEvent(tx, {
+        actorId, action: "permission_template_assigned", entityType: "user", entityId: target.managementId,
+        metadata: { templateId: template.id },
+      });
+    });
+    const item = await accessRecord(target.managementId);
+    res.json(item);
+  } catch (error) { next(error); }
+});
+
+router.delete("/admin/users/:userId/permission-template", requireSuperAdmin, csrfProtection, async (req, res, next) => {
+  try {
+    const params = ClearPermissionTemplateParams.safeParse(req.params);
+    const actorId = getOwner(res).userId;
+    if (!params.success || !actorId) { badRequest(res, "Invalid template assignment"); return; }
+    const target = await protectedTarget(params.data.userId);
+    if (!target) { res.status(404).json({ code: "NOT_FOUND", message: "User not found" }); return; }
+    if (target.isSuperAdmin) { res.status(409).json({ code: "PROTECTED_SUPER_ADMIN", message: "The protected Super Admin cannot be changed" }); return; }
+    await db.transaction(async (tx) => {
+      await tx.delete(userPermissionTemplates).where(eq(userPermissionTemplates.userId, target.id));
+      await writeAuditEvent(tx, { actorId, action: "permission_template_cleared", entityType: "user", entityId: target.managementId, metadata: {} });
+    });
+    res.json(await accessRecord(target.managementId));
+  } catch (error) { next(error); }
+});
+
+router.put("/admin/users/:userId/permission-overrides", requireSuperAdmin, csrfProtection, async (req, res, next) => {
+  try {
+    const params = SetPermissionOverrideParams.safeParse(req.params);
+    const body = SetPermissionOverrideBody.safeParse(req.body);
+    const actorId = getOwner(res).userId;
+    if (!params.success || !body.success || !actorId || !isPermission(body.data.permission)) {
+      badRequest(res, "Invalid permission override");
+      return;
+    }
+    const target = await protectedTarget(params.data.userId);
+    if (!target) { res.status(404).json({ code: "NOT_FOUND", message: "User not found" }); return; }
+    if (target.isSuperAdmin) { res.status(409).json({ code: "PROTECTED_SUPER_ADMIN", message: "The protected Super Admin cannot be changed" }); return; }
+    await db.transaction(async (tx) => {
+      await tx.insert(userPermissionOverrides).values({
+        userId: target.id, permission: body.data.permission, effect: body.data.effect, grantedByUserId: actorId,
+      }).onConflictDoUpdate({
+        target: [userPermissionOverrides.userId, userPermissionOverrides.permission],
+        set: { effect: body.data.effect, grantedByUserId: actorId, createdAt: new Date() },
+      });
+      await writeAuditEvent(tx, {
+        actorId, action: "permission_override_set", entityType: "user", entityId: target.managementId,
+        metadata: { permission: body.data.permission, effect: body.data.effect },
+      });
+    });
+    res.json(await accessRecord(target.managementId));
+  } catch (error) { next(error); }
+});
+
+router.delete("/admin/users/:userId/permission-overrides/:permission", requireSuperAdmin, csrfProtection, async (req, res, next) => {
+  try {
+    const params = ClearPermissionOverrideParams.safeParse(req.params);
+    const actorId = getOwner(res).userId;
+    if (!params.success || !actorId || !isPermission(params.data.permission)) { badRequest(res, "Invalid permission override"); return; }
+    const target = await protectedTarget(params.data.userId);
+    if (!target) { res.status(404).json({ code: "NOT_FOUND", message: "User not found" }); return; }
+    if (target.isSuperAdmin) { res.status(409).json({ code: "PROTECTED_SUPER_ADMIN", message: "The protected Super Admin cannot be changed" }); return; }
+    await db.transaction(async (tx) => {
+      await tx.delete(userPermissionOverrides).where(and(eq(userPermissionOverrides.userId, target.id), eq(userPermissionOverrides.permission, params.data.permission)));
+      await writeAuditEvent(tx, { actorId, action: "permission_override_cleared", entityType: "user", entityId: target.managementId, metadata: { permission: params.data.permission } });
+    });
+    res.json(await accessRecord(target.managementId));
+  } catch (error) { next(error); }
+});
+
+router.get("/admin/quiz/questions", requirePermission("content.view"), async (req, res, next) => {
   try {
     const parsed = ListAdminQuestionsQueryParams.safeParse(req.query);
     if (!parsed.success) return badRequest(res, "Invalid question list filters");
@@ -282,7 +529,7 @@ router.get("/admin/quiz/questions", async (req, res, next) => {
   }
 });
 
-router.post("/admin/quiz/questions", csrfProtection, async (req, res, next) => {
+router.post("/admin/quiz/questions", requirePermission("content.manage"), csrfProtection, async (req, res, next) => {
   try {
     const parsed = CreateAdminQuestionBody.safeParse(req.body);
     if (!parsed.success) return badRequest(res, "Invalid question");
@@ -299,7 +546,7 @@ router.post("/admin/quiz/questions", csrfProtection, async (req, res, next) => {
   }
 });
 
-router.patch("/admin/quiz/questions/:questionId", csrfProtection, async (req, res, next) => {
+router.patch("/admin/quiz/questions/:questionId", requirePermission("content.manage"), csrfProtection, async (req, res, next) => {
   try {
     const params = UpdateAdminQuestionParams.safeParse(req.params);
     const parsed = UpdateAdminQuestionBody.safeParse(req.body);
@@ -353,7 +600,7 @@ router.patch("/admin/quiz/questions/:questionId", csrfProtection, async (req, re
   }
 });
 
-router.post("/admin/quiz/questions/:questionId/reviews", csrfProtection, async (req, res, next) => {
+router.post("/admin/quiz/questions/:questionId/reviews", requirePermission("content.manage"), csrfProtection, async (req, res, next) => {
   try {
     const params = ReviewQuestionParams.safeParse(req.params);
     const parsed = ReviewQuestionBody.safeParse(req.body);
@@ -511,7 +758,7 @@ async function quizScheduleMutation(
   });
 }
 
-router.get("/admin/quiz/quizzes", async (_req, res, next) => {
+router.get("/admin/quiz/quizzes", requirePermission("schedule.view"), async (_req, res, next) => {
   try {
     const rows = await db.select({ id: quizzes.id }).from(quizzes).orderBy(desc(quizzes.scheduledDate), desc(quizzes.createdAt));
     const items = [];
@@ -523,7 +770,7 @@ router.get("/admin/quiz/quizzes", async (_req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.post("/admin/quiz/quizzes", csrfProtection, async (req, res, next) => {
+router.post("/admin/quiz/quizzes", requirePermission("schedule.manage"), csrfProtection, async (req, res, next) => {
   try {
     const parsed = CreateAdminQuizBody.safeParse(req.body);
     if (!parsed.success) return badRequest(res, "Invalid quiz schedule");
@@ -536,7 +783,7 @@ router.post("/admin/quiz/quizzes", csrfProtection, async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.patch("/admin/quiz/quizzes/:quizId", csrfProtection, async (req, res, next) => {
+router.patch("/admin/quiz/quizzes/:quizId", requirePermission("schedule.manage"), csrfProtection, async (req, res, next) => {
   try {
     const params = UpdateAdminQuizParams.safeParse(req.params);
     const parsed = UpdateAdminQuizBody.safeParse(req.body);
@@ -550,7 +797,7 @@ router.patch("/admin/quiz/quizzes/:quizId", csrfProtection, async (req, res, nex
   } catch (error) { next(error); }
 });
 
-router.get("/admin/quiz/quizzes/:quizId/preview", async (req, res, next) => {
+router.get("/admin/quiz/quizzes/:quizId/preview", requirePermission("schedule.view"), async (req, res, next) => {
   try {
     const params = PreviewAdminQuizParams.safeParse(req.params);
     if (!params.success) return badRequest(res, "Invalid quiz id");

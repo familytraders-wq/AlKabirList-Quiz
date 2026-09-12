@@ -15,12 +15,12 @@ import {
 } from "@workspace/db/schema";
 import { createApp } from "../app";
 
-type Identity = { userId: string; role: "member" | "reviewer" | "admin" };
+type Identity = { userId: string; role: "member" | "reviewer" | "admin"; permissions?: string[] };
 type Result = { status: number; body: any };
 const complete = { userId: randomUUID(), role: "member" as const };
 const incomplete = { userId: randomUUID(), role: "member" as const };
 const reviewer = { userId: randomUUID(), role: "reviewer" as const };
-const admin = { userId: randomUUID(), role: "admin" as const };
+const admin = { userId: randomUUID(), role: "admin" as const, permissions: ["access.view"] };
 const identities = new Map<string, Identity>(
   [complete, incomplete, reviewer, admin].map((user) => [user.userId, user]),
 );

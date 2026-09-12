@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { userRoles, users } from "@workspace/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { resolvePermissions } from "./permissions";
 
 export type ApplicationRole = "reviewer" | "admin";
 
@@ -10,6 +11,8 @@ export type AuthenticatedUser = {
   id: string;
   clerkUserId: string;
   roles: ApplicationRole[];
+  isSuperAdmin: boolean;
+  permissions: string[];
 };
 
 type AuthenticatedRequest = Request & {
@@ -52,6 +55,12 @@ export async function resolveUser(clerkUserId: string): Promise<AuthenticatedUse
     id: user.id,
     clerkUserId: user.clerkUserId ?? clerkUserId,
     roles: roleRows.map((row) => row.role),
+    isSuperAdmin: user.isSuperAdmin,
+    permissions: await resolvePermissions(
+      user.id,
+      roleRows.map((row) => row.role),
+      user.isSuperAdmin,
+    ),
   };
 }
 
@@ -82,6 +91,12 @@ export const optionalUser: RequestHandler = async (req, res, next) => {
           id: testAuth.userId,
           clerkUserId: testAuth.userId,
           roles: testAuth.role === "member" ? [] : [testAuth.role],
+          isSuperAdmin: false,
+          permissions: await resolvePermissions(
+            testAuth.userId,
+            testAuth.role === "member" ? [] : [testAuth.role],
+            false,
+          ),
         };
       }
       next();
@@ -108,6 +123,12 @@ export const requiredUser: RequestHandler = async (req, res, next) => {
         id: testAuth.userId,
         clerkUserId: testAuth.userId,
         roles: testAuth.role === "member" ? [] : [testAuth.role],
+        isSuperAdmin: false,
+        permissions: await resolvePermissions(
+          testAuth.userId,
+          testAuth.role === "member" ? [] : [testAuth.role],
+          false,
+        ),
       };
       next();
       return;
@@ -140,8 +161,8 @@ export function requireRole(
 
       const allowed =
         minimumRole === "reviewer"
-          ? user.roles.includes("reviewer") || user.roles.includes("admin")
-          : user.roles.includes("admin");
+          ? user.roles.includes("reviewer") || user.roles.includes("admin") || user.isSuperAdmin
+          : user.roles.includes("admin") || user.isSuperAdmin;
 
       if (!allowed) {
         res.status(403).json({ error: "Forbidden" });
@@ -154,6 +175,42 @@ export function requireRole(
     }
   };
 }
+
+export function requirePermission(permission: string): RequestHandler {
+  return async (req, res, next) => {
+    try {
+      const user = getRequestUser(req) ?? (await resolveOptionalUser(req));
+      if (!user) {
+        res.status(401).json({ error: "Unauthorized" });
+        return;
+      }
+      if (!user.isSuperAdmin && !user.permissions.includes(permission)) {
+        res.status(403).json({ error: "Forbidden" });
+        return;
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+export const superAdminOnly: RequestHandler = async (req, res, next) => {
+  try {
+    const user = getRequestUser(req) ?? (await resolveOptionalUser(req));
+    if (!user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    if (!user.isSuperAdmin) {
+      res.status(403).json({ error: "Super Administrator access is required" });
+      return;
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
 
 export const reviewerOrAdmin = requireRole("reviewer");
 export const adminOnly = requireRole("admin");

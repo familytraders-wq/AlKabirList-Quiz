@@ -876,17 +876,182 @@ export const PreviewAdminQuizResponse = zod.object({
 /**
  * @summary List internal users and assigned access roles
  */
-export const listAdminUsersResponseItemsItemIdMax = 256;
-
-
-export const listAdminUsersResponseItemsItemIdRegExp = new RegExp('^[^\\s]+$');
-
-
 export const ListAdminUsersResponse = zod.object({
   "items": zod.array(zod.object({
-  "id": zod.string().min(1).max(listAdminUsersResponseItemsItemIdMax).regex(listAdminUsersResponseItemsItemIdRegExp),
+  "id": zod.string().uuid().describe('Opaque management UUID; never a Clerk subject or internal users.id.'),
   "createdAt": zod.coerce.date(),
-  "roles": zod.array(zod.enum(['reviewer', 'admin']))
+  "roles": zod.array(zod.enum(['reviewer', 'admin'])),
+  "isSuperAdmin": zod.boolean(),
+  "permissions": zod.array(zod.string()),
+  "template": zod.union([zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string()
+}),zod.null()]),
+  "overrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
+}))
+})
+
+
+export const ListPermissionTemplatesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "permissions": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+}))
+})
+
+
+export const createPermissionTemplateBodyNameMax = 100;
+
+export const createPermissionTemplateBodyDescriptionMax = 500;
+
+
+
+export const CreatePermissionTemplateBody = zod.object({
+  "name": zod.string().min(1).max(createPermissionTemplateBodyNameMax),
+  "description": zod.string().max(createPermissionTemplateBodyDescriptionMax).optional(),
+  "permissions": zod.array(zod.string())
+})
+
+export const CreatePermissionTemplateResponse = zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "permissions": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+export const UpdatePermissionTemplateParams = zod.object({
+  "templateId": zod.coerce.string().uuid()
+})
+
+export const updatePermissionTemplateBodyNameMax = 100;
+
+export const updatePermissionTemplateBodyDescriptionMax = 500;
+
+
+
+export const UpdatePermissionTemplateBody = zod.object({
+  "name": zod.string().min(1).max(updatePermissionTemplateBodyNameMax),
+  "description": zod.string().max(updatePermissionTemplateBodyDescriptionMax).optional(),
+  "permissions": zod.array(zod.string())
+})
+
+export const UpdatePermissionTemplateResponse = zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "permissions": zod.array(zod.string()),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+export const DeletePermissionTemplateParams = zod.object({
+  "templateId": zod.coerce.string().uuid()
+})
+
+export const DeletePermissionTemplateResponse = zod.void()
+
+
+export const AssignPermissionTemplateParams = zod.object({
+  "userId": zod.coerce.string().uuid()
+})
+
+export const AssignPermissionTemplateBody = zod.object({
+  "templateId": zod.string().uuid()
+})
+
+export const AssignPermissionTemplateResponse = zod.object({
+  "id": zod.string().uuid().describe('Opaque management UUID; never a Clerk subject or internal users.id.'),
+  "createdAt": zod.coerce.date(),
+  "roles": zod.array(zod.enum(['reviewer', 'admin'])),
+  "isSuperAdmin": zod.boolean(),
+  "permissions": zod.array(zod.string()),
+  "template": zod.union([zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string()
+}),zod.null()]),
+  "overrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
+})
+
+
+export const ClearPermissionTemplateParams = zod.object({
+  "userId": zod.coerce.string().uuid()
+})
+
+export const ClearPermissionTemplateResponse = zod.object({
+  "id": zod.string().uuid().describe('Opaque management UUID; never a Clerk subject or internal users.id.'),
+  "createdAt": zod.coerce.date(),
+  "roles": zod.array(zod.enum(['reviewer', 'admin'])),
+  "isSuperAdmin": zod.boolean(),
+  "permissions": zod.array(zod.string()),
+  "template": zod.union([zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string()
+}),zod.null()]),
+  "overrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
+})
+
+
+export const SetPermissionOverrideParams = zod.object({
+  "userId": zod.coerce.string().uuid()
+})
+
+export const SetPermissionOverrideBody = zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+})
+
+export const SetPermissionOverrideResponse = zod.object({
+  "id": zod.string().uuid().describe('Opaque management UUID; never a Clerk subject or internal users.id.'),
+  "createdAt": zod.coerce.date(),
+  "roles": zod.array(zod.enum(['reviewer', 'admin'])),
+  "isSuperAdmin": zod.boolean(),
+  "permissions": zod.array(zod.string()),
+  "template": zod.union([zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string()
+}),zod.null()]),
+  "overrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
+})
+
+
+export const ClearPermissionOverrideParams = zod.object({
+  "userId": zod.coerce.string().uuid(),
+  "permission": zod.coerce.string()
+})
+
+export const ClearPermissionOverrideResponse = zod.object({
+  "id": zod.string().uuid().describe('Opaque management UUID; never a Clerk subject or internal users.id.'),
+  "createdAt": zod.coerce.date(),
+  "roles": zod.array(zod.enum(['reviewer', 'admin'])),
+  "isSuperAdmin": zod.boolean(),
+  "permissions": zod.array(zod.string()),
+  "template": zod.union([zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string()
+}),zod.null()]),
+  "overrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
 }))
 })
 
@@ -894,60 +1059,56 @@ export const ListAdminUsersResponse = zod.object({
 /**
  * @summary Grant a reviewer or administrator role
  */
-export const grantAdminUserRolePathUserIdMax = 256;
-
-
-export const grantAdminUserRolePathUserIdRegExp = new RegExp('^[^\\s]+$');
-
-
 export const GrantAdminUserRoleParams = zod.object({
-  "userId": zod.coerce.string().min(1).max(grantAdminUserRolePathUserIdMax).regex(grantAdminUserRolePathUserIdRegExp)
+  "userId": zod.coerce.string().uuid()
 })
 
 export const GrantAdminUserRoleBody = zod.object({
   "role": zod.enum(['reviewer', 'admin'])
 })
 
-export const grantAdminUserRoleResponseIdMax = 256;
-
-
-export const grantAdminUserRoleResponseIdRegExp = new RegExp('^[^\\s]+$');
-
-
 export const GrantAdminUserRoleResponse = zod.object({
-  "id": zod.string().min(1).max(grantAdminUserRoleResponseIdMax).regex(grantAdminUserRoleResponseIdRegExp),
+  "id": zod.string().uuid().describe('Opaque management UUID; never a Clerk subject or internal users.id.'),
   "createdAt": zod.coerce.date(),
-  "roles": zod.array(zod.enum(['reviewer', 'admin']))
+  "roles": zod.array(zod.enum(['reviewer', 'admin'])),
+  "isSuperAdmin": zod.boolean(),
+  "permissions": zod.array(zod.string()),
+  "template": zod.union([zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string()
+}),zod.null()]),
+  "overrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
 })
 
 
 /**
  * @summary Revoke a reviewer or administrator role
  */
-export const revokeAdminUserRolePathUserIdMax = 256;
-
-
-export const revokeAdminUserRolePathUserIdRegExp = new RegExp('^[^\\s]+$');
-
-
 export const RevokeAdminUserRoleParams = zod.object({
-  "userId": zod.coerce.string().min(1).max(revokeAdminUserRolePathUserIdMax).regex(revokeAdminUserRolePathUserIdRegExp)
+  "userId": zod.coerce.string().uuid()
 })
 
 export const RevokeAdminUserRoleBody = zod.object({
   "role": zod.enum(['reviewer', 'admin'])
 })
 
-export const revokeAdminUserRoleResponseIdMax = 256;
-
-
-export const revokeAdminUserRoleResponseIdRegExp = new RegExp('^[^\\s]+$');
-
-
 export const RevokeAdminUserRoleResponse = zod.object({
-  "id": zod.string().min(1).max(revokeAdminUserRoleResponseIdMax).regex(revokeAdminUserRoleResponseIdRegExp),
+  "id": zod.string().uuid().describe('Opaque management UUID; never a Clerk subject or internal users.id.'),
   "createdAt": zod.coerce.date(),
-  "roles": zod.array(zod.enum(['reviewer', 'admin']))
+  "roles": zod.array(zod.enum(['reviewer', 'admin'])),
+  "isSuperAdmin": zod.boolean(),
+  "permissions": zod.array(zod.string()),
+  "template": zod.union([zod.object({
+  "id": zod.string().uuid(),
+  "name": zod.string()
+}),zod.null()]),
+  "overrides": zod.array(zod.object({
+  "permission": zod.string(),
+  "effect": zod.enum(['allow', 'deny'])
+}))
 })
 
 
@@ -966,7 +1127,9 @@ export const GetAuthMeResponse = zod.object({
   "authenticated": zod.boolean(),
   "user": zod.union([zod.object({
   "id": zod.string().min(1).max(getAuthMeResponseUserOneIdMax).regex(getAuthMeResponseUserOneIdRegExp),
-  "roles": zod.array(zod.enum(['reviewer', 'admin']))
+  "roles": zod.array(zod.enum(['reviewer', 'admin'])),
+  "isSuperAdmin": zod.boolean(),
+  "permissions": zod.array(zod.string())
 }),zod.null()]),
   "guestProgress": zod.object({
   "count": zod.number().int().min(getAuthMeResponseGuestProgressCountMin),
@@ -1101,3 +1264,4 @@ export const PatchMyProfileResponse = zod.object({
   "profileCompletedAt": zod.coerce.date().nullable(),
   "profileComplete": zod.boolean()
 })
+// generated output

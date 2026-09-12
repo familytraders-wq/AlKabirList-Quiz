@@ -6,14 +6,16 @@
  * OpenAPI spec version: 0.2.0
  */
 import type { ManagedRole } from './managedRole';
+import type { PermissionOverride } from './permissionOverride';
+import type { PermissionTemplateAssignmentInfo } from './permissionTemplateAssignmentInfo';
 
 export interface AdminUser {
-  /**
-     * @minLength 1
-     * @maxLength 256
-     * @pattern ^[^\s]+$
-     */
+  /** Opaque management UUID; never a Clerk subject or internal users.id. */
   id: string;
   createdAt: Date;
   roles: ManagedRole[];
+  isSuperAdmin: boolean;
+  permissions: string[];
+  template: PermissionTemplateAssignmentInfo | null;
+  overrides: PermissionOverride[];
 }

@@ -15,4 +15,6 @@ export interface AuthUser {
      */
   id: string;
   roles: AuthUserRolesItem[];
+  isSuperAdmin: boolean;
+  permissions: string[];
 }

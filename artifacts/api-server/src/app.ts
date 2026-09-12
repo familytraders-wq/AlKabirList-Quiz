@@ -15,6 +15,7 @@ import {
   getClerkProxyHost,
 } from "./middlewares/clerkProxyMiddleware";
 import { ensureSecurityCookies, exactOriginCors } from "./lib/security";
+import { defaultPermissionsForRoles, PERMISSIONS } from "./lib/permissions";
 
 type AppOptions = {
   resolveAuth?: (req: express.Request) => AuthContext | undefined;
@@ -74,10 +75,18 @@ export function createApp(options: AppOptions = {}): Express {
         res.locals.auth = options.resolveAuth?.(req);
         const context = res.locals.auth as AuthContext | undefined;
         if (context) {
+          const roles = context.role === "member" ? [] : [context.role];
+          const isSuperAdmin = context.isSuperAdmin === true;
+          const permissions = isSuperAdmin
+            ? [...PERMISSIONS]
+            : context.permissions ?? defaultPermissionsForRoles(roles);
+          res.locals.auth = { ...context, isSuperAdmin, permissions } satisfies AuthContext;
           (req as express.Request & { authUser?: AuthenticatedUser }).authUser = {
             id: context.userId,
             clerkUserId: context.userId,
-            roles: context.role === "member" ? [] : [context.role],
+            roles,
+            isSuperAdmin,
+            permissions,
           };
         }
         next();
