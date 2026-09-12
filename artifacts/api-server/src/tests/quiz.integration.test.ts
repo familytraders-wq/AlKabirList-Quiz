@@ -551,6 +551,147 @@ describe("quiz submission safety", () => {
     assert.equal(result.body.answers.length, 1);
   });
 
+  it("repeats answer and completion races without saving a mismatched score", async () => {
+    const raceQuizId = randomUUID();
+    const raceQuestionIds = [randomUUID(), randomUUID()];
+    const raceVersionIds = [randomUUID(), randomUUID()];
+    const raceChoiceIds = [randomUUID(), randomUUID()];
+    const raceIncorrectChoiceIds = [randomUUID(), randomUUID()];
+    const attemptIds: string[] = [];
+
+    try {
+      for (let index = 0; index < raceQuestionIds.length; index += 1) {
+        await insertQuestion({
+          questionId: raceQuestionIds[index]!,
+          versionId: raceVersionIds[index]!,
+          status: "approved",
+          prompt: `Race fixture question ${index + 1}`,
+          choiceIds: [
+            { id: raceChoiceIds[index]!, label: "Correct", isCorrect: true },
+            { id: raceIncorrectChoiceIds[index]!, label: "Incorrect", isCorrect: false },
+          ],
+        });
+      }
+      await db.insert(quizzes).values({
+        id: raceQuizId,
+        slug: `task49-race-${randomUUID()}`,
+        title: "Task 49 race fixture",
+        isActive: true,
+      });
+      await db.insert(quizQuestions).values(
+        raceVersionIds.map((versionId, position) => ({
+          quizId: raceQuizId,
+          versionId,
+          position,
+          points: 25,
+        })),
+      );
+
+      const completionStatuses = new Set<number>();
+      for (let iteration = 0; iteration < 20; iteration += 1) {
+        const started = await request(
+          "/quiz/attempts",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              quizId: raceQuizId,
+              idempotencyKey: `task49-start-${iteration}-${randomUUID()}`,
+            }),
+          },
+          member,
+        );
+        assert.equal(started.status, 201, JSON.stringify(started.body));
+        const attemptId = started.body.attemptId as string;
+        attemptIds.push(attemptId);
+
+        const initialAnswer = await request(
+          `/quiz/attempts/${attemptId}/answers`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              versionId: raceVersionIds[0],
+              choiceId: raceChoiceIds[0],
+              idempotencyKey: `task49-initial-${iteration}-${randomUUID()}`,
+            }),
+          },
+          member,
+        );
+        assert.equal(initialAnswer.status, 200, JSON.stringify(initialAnswer.body));
+
+        const answerRequest = () => request(
+          `/quiz/attempts/${attemptId}/answers`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              versionId: raceVersionIds[1],
+              choiceId: raceChoiceIds[1],
+              idempotencyKey: `task49-race-answer-${iteration}-${randomUUID()}`,
+            }),
+          },
+          member,
+        );
+        const completeRequest = () => request(
+          `/quiz/attempts/${attemptId}/complete`,
+          { method: "POST" },
+          member,
+        );
+        const [answerResponse, completionResponse] = iteration % 2 === 1
+          ? await Promise.all([completeRequest(), answerRequest()]).then(([completion, answer]) => [answer, completion] as const)
+          : await Promise.all([answerRequest(), completeRequest()]);
+        completionStatuses.add(completionResponse.status);
+
+        assert.equal(answerResponse.status, 200, JSON.stringify(answerResponse.body));
+        assert.ok([200, 409].includes(completionResponse.status));
+        if (completionResponse.status === 409) {
+          assert.equal(completionResponse.body.code, "INCOMPLETE_ATTEMPT");
+          const openAttempt = await request(`/quiz/attempts/${attemptId}`, {}, member);
+          assert.equal(openAttempt.status, 200);
+          assert.equal(openAttempt.body.status, "in_progress");
+          const retried = await request(
+            `/quiz/attempts/${attemptId}/complete`,
+            { method: "POST" },
+            member,
+          );
+          assert.equal(retried.status, 200, JSON.stringify(retried.body));
+        }
+
+        const result = await request(`/quiz/results/${attemptId}`, {}, member);
+        assert.equal(result.status, 200, JSON.stringify(result.body));
+        assert.equal(result.body.status, "completed");
+        assert.equal(result.body.answers.length, 2);
+        assert.equal(result.body.score, 50);
+
+        const [storedAttempt] = await db
+          .select({ status: quizAttempts.status, score: quizAttempts.score })
+          .from(quizAttempts)
+          .where(eq(quizAttempts.id, attemptId));
+        const storedAnswers = await db
+          .select({ awardedPoints: attemptAnswers.awardedPoints })
+          .from(attemptAnswers)
+          .where(eq(attemptAnswers.attemptId, attemptId));
+        assert.equal(storedAttempt?.status, "completed");
+        assert.equal(
+          storedAttempt?.score,
+          storedAnswers.reduce((total, answer) => total + answer.awardedPoints, 0),
+        );
+      }
+
+      assert.ok(completionStatuses.has(200));
+      assert.ok(completionStatuses.has(409));
+    } finally {
+      if (attemptIds.length > 0) {
+        await db.delete(rewardLedger).where(inArray(rewardLedger.attemptId, attemptIds));
+        await db.delete(attemptAnswers).where(inArray(attemptAnswers.attemptId, attemptIds));
+        await db.delete(quizAttempts).where(inArray(quizAttempts.id, attemptIds));
+      }
+      await db.delete(quizQuestions).where(eq(quizQuestions.quizId, raceQuizId));
+      await db.delete(quizzes).where(eq(quizzes.id, raceQuizId));
+      await db.delete(questionChoices).where(inArray(questionChoices.versionId, raceVersionIds));
+      await db.delete(questionVersions).where(inArray(questionVersions.id, raceVersionIds));
+      await db.delete(questions).where(inArray(questions.id, raceQuestionIds));
+    }
+  });
+
   it("keeps guest answer and completion races at the published score boundary", async () => {
     const guestJar = new CookieJar();
     let attemptId: string | undefined;
