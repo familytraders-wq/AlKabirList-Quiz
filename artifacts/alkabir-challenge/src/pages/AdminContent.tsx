@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetAuthMe,
   getGetAuthMeQueryKey,
+  useGetQuizConfig,
   useListAdminQuestions,
   useCreateAdminQuestion,
   useUpdateAdminQuestion,
@@ -598,11 +599,14 @@ function CsvImportCard() {
 function ManualDraftForm({ existingQuestion, onClose }: { existingQuestion?: AdminQuestion, onClose?: () => void }) {
   const createMutation = useCreateAdminQuestion();
   const updateMutation = useUpdateAdminQuestion();
+  const { data: quizConfig, isLoading: isLoadingQuizConfig, isError: isQuizConfigError } = useGetQuizConfig();
   const queryClient = useQueryClient();
 
   const [prompt, setPrompt] = useState(existingQuestion?.prompt ?? "");
   const [explanation, setExplanation] = useState(existingQuestion?.explanation ?? "");
   const [points, setPoints] = useState<number | "">(existingQuestion?.points ?? 10);
+  const [categoryId, setCategoryId] = useState(existingQuestion?.categoryId ?? "");
+  const [difficultyId, setDifficultyId] = useState(existingQuestion?.difficultyId ?? "");
   const [sources, setSources] = useState<{title: string, url: string}[]>(
     existingQuestion?.sourceMetadata?.length ? existingQuestion.sourceMetadata.map(s => ({ title: s.title, url: s.url ?? "" })) : []
   );
@@ -643,6 +647,8 @@ function ManualDraftForm({ existingQuestion, onClose }: { existingQuestion?: Adm
     }
 
     const payload: QuestionWriteRequest = {
+      categoryId: categoryId || undefined,
+      difficultyId: difficultyId || undefined,
       prompt: prompt.trim(),
       explanation: explanation.trim(),
       choices: formattedChoices,
@@ -668,6 +674,8 @@ function ManualDraftForm({ existingQuestion, onClose }: { existingQuestion?: Adm
           setPrompt("");
           setExplanation("");
           setPoints(10);
+          setCategoryId("");
+          setDifficultyId("");
           setSources([]);
           setChoices([
             { label: "", isCorrect: true },
@@ -759,6 +767,47 @@ function ManualDraftForm({ existingQuestion, onClose }: { existingQuestion?: Adm
           onChange={(e) => setPoints(e.target.value === "" ? "" : Number(e.target.value))} 
         />
       </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="category">Category</Label>
+          <select
+            id="category"
+            data-testid="select-question-category"
+            value={categoryId}
+            onChange={(event) => setCategoryId(event.target.value)}
+            disabled={isLoadingQuizConfig || isQuizConfigError}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">No category</option>
+            {quizConfig?.categories.map((category) => (
+              <option key={category.id} value={category.id}>{category.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="difficulty">Difficulty</Label>
+          <select
+            id="difficulty"
+            data-testid="select-question-difficulty"
+            value={difficultyId}
+            onChange={(event) => setDifficultyId(event.target.value)}
+            disabled={isLoadingQuizConfig || isQuizConfigError}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">No difficulty</option>
+            {quizConfig?.difficulties.map((difficulty) => (
+              <option key={difficulty.id} value={difficulty.id}>{difficulty.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      {isQuizConfigError && (
+        <p className="text-sm text-destructive" role="alert">
+          Categories and difficulties could not be loaded. You can save the question without them and try again later.
+        </p>
+      )}
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
