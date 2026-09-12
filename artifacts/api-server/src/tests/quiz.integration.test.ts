@@ -366,22 +366,26 @@ after(async () => {
   await db.delete(guestProgressLinks).where(
     inArray(guestProgressLinks.userId, [member.userId, otherMember.userId]),
   );
-  await db.delete(quizQuestions).where(inArray(quizQuestions.quizId, [
+  const fixtureQuizIds = [
     fixture.approvedQuizId,
     fixture.dailyQuizId,
     fixture.draftQuizId,
     fixture.pendingQuizId,
-  ]));
-  await db.delete(quizzes).where(inArray(quizzes.id, [
-    fixture.approvedQuizId,
-    fixture.dailyQuizId,
-    fixture.draftQuizId,
-    fixture.pendingQuizId,
-  ]));
-  if (scheduledQuizIds.length) await db.delete(quizzes).where(inArray(quizzes.id, scheduledQuizIds));
+  ];
+  const allTestQuizIds = [...fixtureQuizIds, ...scheduledQuizIds];
+  await db.delete(quizQuestions).where(inArray(quizQuestions.quizId, allTestQuizIds));
+  await db.delete(quizzes).where(inArray(quizzes.id, allTestQuizIds));
   if (scheduledQuestionIds.length) {
-    await db.delete(questionChoices).where(inArray(questionChoices.versionId, scheduledVersionIds));
-    await db.delete(questionVersions).where(inArray(questionVersions.id, scheduledVersionIds));
+    const scheduledVersions = await db
+      .select({ id: questionVersions.id })
+      .from(questionVersions)
+      .where(inArray(questionVersions.questionId, scheduledQuestionIds));
+    const allScheduledVersionIds = [
+      ...scheduledVersionIds,
+      ...scheduledVersions.map((version) => version.id),
+    ];
+    await db.delete(questionChoices).where(inArray(questionChoices.versionId, allScheduledVersionIds));
+    await db.delete(questionVersions).where(inArray(questionVersions.id, allScheduledVersionIds));
     await db.delete(questions).where(inArray(questions.id, scheduledQuestionIds));
   }
   if (csvTaxonomyIds.length) await db.delete(taxonomies).where(inArray(taxonomies.id, csvTaxonomyIds));
@@ -409,9 +413,45 @@ after(async () => {
     reviewer.userId,
   ]));
   await pool.end();
-  });
+});
 
 describe("quiz submission safety", () => {
+  it("returns the complete browser AnswerResult for a minimally persisted current question", async () => {
+    const started = await request(
+      "/quiz/attempts",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `browser-answer-${randomUUID()}`,
+        }),
+      },
+      member,
+    );
+    assert.equal(started.status, 201);
+    const answered = await request(
+      `/quiz/attempts/${started.body.attemptId}/answers`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          versionId: fixture.approvedVersionId,
+          choiceId: fixture.correctChoiceId,
+          idempotencyKey: `browser-answer-key-${randomUUID()}`,
+        }),
+      },
+      member,
+    );
+    assert.equal(answered.status, 200, JSON.stringify(answered.body));
+    assert.deepEqual(answered.body, {
+      versionId: fixture.approvedVersionId,
+      choiceId: fixture.correctChoiceId,
+      isCorrect: true,
+      awardedPoints: 25,
+      explanation: "Fixture explanation",
+      sources: [],
+    });
+  });
+
   it("redacts malformed legacy source metadata in completion and result responses", async () => {
     const started = await request(
       "/quiz/attempts",
@@ -435,6 +475,9 @@ describe("quiz submission safety", () => {
       }),
     }, member);
     assert.equal(answered.status, 200);
+    await db.update(questionVersions)
+      .set({ sourceMetadata: sql`jsonb_build_object('unexpected', 'legacy')` })
+      .where(eq(questionVersions.id, fixture.approvedVersionId));
 
     const completed = await request(`/quiz/attempts/${attemptId}/complete`, {
       method: "POST",
@@ -477,7 +520,7 @@ describe("quiz submission safety", () => {
       body: JSON.stringify({
         versionId: fixture.approvedVersionId,
         choiceId: fixture.correctChoiceId,
-        idempotencyKey: `restart-answer-${randomUUID()}`,
+        idempotencyKey: `incomplete-answer-${randomUUID()}`,
       }),
     }, member);
     assert.equal(answered.status, 200);
@@ -1348,6 +1391,11 @@ describe("quiz submission safety", () => {
 });
 
 describe("quiz scheduling operations", () => {
+  const uniqueDate = () => {
+    const date = new Date(Date.UTC(2099, 0, 1));
+    date.setUTCDate(date.getUTCDate() + (Number.parseInt(randomUUID().replaceAll("-", "").slice(0, 8), 16) % 36525));
+    return date.toISOString().slice(0, 10);
+  };
   const scheduleBody = (date: string, questions = [{ versionId: fixture.approvedVersionId, points: 30 }]) => ({
     title: "Operations fixture",
     scheduledDate: date,
@@ -1363,19 +1411,19 @@ describe("quiz scheduling operations", () => {
     assert.equal(questionList.body.items.find((item: { id: string }) => item.id === fixture.approvedQuestionId)?.points, 25);
     const created = await adminMutation("/admin/quiz/quizzes", {
       method: "POST",
-      body: JSON.stringify(scheduleBody("2099-04-01")),
+      body: JSON.stringify(scheduleBody(uniqueDate())),
     }, reviewer);
     assert.equal(created.status, 201, JSON.stringify(created.body));
     scheduledQuizIds.push(created.body.id);
     assert.equal((await adminMutation(`/admin/quiz/quizzes/${created.body.id}`, {
       method: "PATCH",
-      body: JSON.stringify({ ...scheduleBody("2099-01-20"), title: "Updated operations fixture", isActive: true }),
+      body: JSON.stringify({ ...scheduleBody(uniqueDate()), title: "Updated operations fixture", isActive: true }),
     }, reviewer)).status, 200);
     assert.equal((await request(`/admin/quiz/quizzes/${created.body.id}/preview`, {}, reviewer)).status, 200);
   });
 
   it("rejects unsafe admin mutations without origin/CSRF and accepts a valid token", async () => {
-    const body = scheduleBody("2099-06-28");
+    const body = scheduleBody(uniqueDate());
     const missingOrigin = await request("/admin/quiz/quizzes", {
       method: "POST",
       body: JSON.stringify(body),
@@ -1428,16 +1476,13 @@ describe("quiz scheduling operations", () => {
       prompt: "Second approved scheduling fixture",
       choiceIds: [{ id: secondChoiceId, label: "Only choice", isCorrect: true }],
     });
-    const date = `2099-03-${String(10 + scheduledQuizIds.length).padStart(2, "0")}`;
+    const date = uniqueDate();
     const responses = await Promise.all([1, 2].map(() => adminMutation("/admin/quiz/quizzes", {
       method: "POST",
       body: JSON.stringify(scheduleBody(date)),
     }, reviewer)));
     assert.deepEqual(responses.map((item) => item.status).sort(), [201, 409]);
-    const created = await adminMutation("/admin/quiz/quizzes", {
-      method: "POST",
-      body: JSON.stringify(scheduleBody("2099-04-01")),
-    }, reviewer);
+    const created = responses.find((item) => item.status === 201)!;
     scheduledQuizIds.push(created.body.id);
     const updated = await adminMutation(`/admin/quiz/quizzes/${created.body.id}`, {
       method: "PATCH",
@@ -1456,7 +1501,7 @@ describe("quiz scheduling operations", () => {
   it("redacts answer metadata from the exact public preview", async () => {
     const created = await adminMutation("/admin/quiz/quizzes", {
       method: "POST",
-      body: JSON.stringify(scheduleBody("2099-04-01")),
+      body: JSON.stringify(scheduleBody(uniqueDate())),
     }, reviewer);
     assert.equal(created.status, 201);
     scheduledQuizIds.push(created.body.id);
@@ -1543,8 +1588,11 @@ describe("CSV question imports", () => {
   it("imports two drafts with quoted commas and creates one audit event per question", async () => {
     const response = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Denied")) }),
-    }, member);
+      body: JSON.stringify({
+        filename: "questions.csv",
+        csv: csv(row("A question, with a comma"), row("A second question")),
+      }),
+    }, reviewer);
     assert.equal(response.status, 201, JSON.stringify(response.body));
     assert.equal(response.body.importedCount, 2);
     assert.equal(response.body.createdCount, 2);
@@ -1563,14 +1611,7 @@ describe("CSV question imports", () => {
   it("atomically mixes creates and version-checked updates, returning updated content to draft", async () => {
     const initial = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({
-        filename: "export-source.csv",
-        csv: csv(row("Exported question, with punctuation", {
-          3: "An explanation with a\nline break",
-          14: "Reference",
-          15: "https://example.com/reference",
-        })),
-      }),
+      body: JSON.stringify({ filename: "initial.csv", csv: csv(row("Original update target")) }),
     }, reviewer);
     assert.equal(initial.status, 201, JSON.stringify(initial.body));
     const questionId = initial.body.questionIds[0] as string;
@@ -1613,15 +1654,9 @@ describe("CSV question imports", () => {
   it("reports stale update rows and rolls back otherwise valid creates", async () => {
     const initial = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({
-        filename: "export-source.csv",
-        csv: csv(row("Exported question, with punctuation", {
-          3: "An explanation with a\nline break",
-          14: "Reference",
-          15: "https://example.com/reference",
-        })),
-      }),
+      body: JSON.stringify({ filename: "initial.csv", csv: csv(row("Stale target")) }),
     }, reviewer);
+    assert.equal(initial.status, 201, JSON.stringify(initial.body));
     const questionId = initial.body.questionIds[0] as string;
 
     scheduledQuestionIds.push(questionId);
@@ -1644,24 +1679,13 @@ describe("CSV question imports", () => {
   it("allows only one concurrent import for the same expected version", async () => {
     const initial = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({
-        filename: "export-source.csv",
-        csv: csv(row("Exported question, with punctuation", {
-          3: "An explanation with a\nline break",
-          14: "Reference",
-          15: "https://example.com/reference",
-        })),
-      }),
+      body: JSON.stringify({ filename: "initial.csv", csv: csv(row("Concurrent target")) }),
     }, reviewer);
     assert.equal(initial.status, 201, JSON.stringify(initial.body));
     const questionId = initial.body.questionIds[0] as string;
-    scheduledQuestionIds.push(questionId);
 
-    const exported = await adminMutation(
-      `/admin/quiz/questions/export-csv?question_id=${questionId}`,
-      {},
-      reviewer,
-    );
+    const exported = await adminMutation(`/admin/quiz/questions/export-csv?question_id=${questionId}`, {}, reviewer);
+    assert.equal(exported.status, 200);
     scheduledQuestionIds.push(questionId);
 
     const [first, second] = await Promise.all([
@@ -1713,8 +1737,11 @@ describe("CSV question imports", () => {
     const escapedPrompt = `${"\\".repeat(200_000)},"quoted"`;
     const response = await adminMutation("/admin/quiz/questions/import-csv", {
       method: "POST",
-      body: JSON.stringify({ filename: "questions.csv", csv: csv(row("Denied")) }),
-    }, member);
+      body: JSON.stringify({
+        filename: "escape-heavy.csv",
+        csv: csv(row(escapedPrompt)),
+      }),
+    }, reviewer);
     assert.notEqual(response.status, 413);
     assert.ok([201, 400].includes(response.status), JSON.stringify(response.body));
     if (response.status === 201) scheduledQuestionIds.push(...response.body.questionIds);
