@@ -152,6 +152,7 @@ export function Quiz() {
   const [status, setStatus] = useState<QuizStatus>("answering");
   const [finalResult, setFinalResult] = useState<QuizResult | null>(null);
   const [isResultRetrying, setIsResultRetrying] = useState(false);
+  const [resultRetryError, setResultRetryError] = useState<unknown>(null);
   const startRequested = useRef(false);
   const answerKeys = useRef(new Map<string, string>());
   const {
@@ -202,6 +203,7 @@ export function Quiz() {
       setStatus("answering");
       setFinalResult(null);
       setIsResultRetrying(false);
+      setResultRetryError(null);
       startRequested.current = false;
       startAttempt.reset();
 
@@ -281,8 +283,11 @@ export function Quiz() {
 
   const retryResult = async () => {
     setIsResultRetrying(true);
+    setResultRetryError(null);
     try {
       await resultQuery.refetch();
+    } catch (error) {
+      setResultRetryError(error);
     } finally {
       setIsResultRetrying(false);
     }
@@ -350,6 +355,7 @@ export function Quiz() {
     setAttemptState(null);
     setAnsweredVersionIds([]);
     setFinalResult(null);
+    setResultRetryError(null);
     startRequested.current = false;
     startAttempt.reset();
   };
@@ -462,11 +468,12 @@ export function Quiz() {
 
   if (attemptState.status === "completed" || result) {
     if (resultQuery.isError && !result) {
+      const resultError = resultRetryError ?? resultQuery.error;
       return (
         <PageShell>
           <StatusContent title="Your result could not be loaded">
             <ErrorNotice
-              message={getErrorMessage(resultQuery.error, "The challenge service returned an error.")}
+              message={getErrorMessage(resultError, "The challenge service returned an error.")}
               onRetry={() => void retryResult()}
               retrying={isResultRetrying}
             />

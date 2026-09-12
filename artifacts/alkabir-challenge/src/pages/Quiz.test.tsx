@@ -494,4 +494,27 @@ describe("Quiz lifecycle", () => {
     });
     expect(screen.getByText("The result service failed again.")).toBeInTheDocument();
   });
+
+  it("handles a rejected completed-result retry and shows its error", async () => {
+    window.localStorage.setItem("alkabir.quiz.attemptId:daily-quiz", "attempt-1");
+    mockState.resume.data = completedAttempt;
+    mockState.result.isError = true;
+    mockState.result.error = new Error("The result service is temporarily unavailable.");
+    mockState.result.refetch.mockRejectedValueOnce(
+      new Error("The result service rejected the retry request."),
+    );
+
+    renderWithProviders(<Quiz />);
+
+    expect(await screen.findByText("Your result could not be loaded")).toBeInTheDocument();
+    const retryButton = screen.getByTestId("button-retry-quiz");
+
+    fireEvent.click(retryButton);
+
+    await waitFor(() => {
+      expect(retryButton).toBeEnabled();
+      expect(retryButton).toHaveTextContent("Try again");
+    });
+    expect(screen.getByText("The result service rejected the retry request.")).toBeInTheDocument();
+  });
 });
