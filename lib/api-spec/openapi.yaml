@@ -32,6 +32,138 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /livez:
+    get:
+      operationId: liveHealth
+      tags: [health]
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthStatus" }
+  /readyz:
+    get:
+      operationId: readyHealth
+      tags: [health]
+      responses:
+        "200":
+          description: Database is reachable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthStatus" }
+        "503":
+          description: Database unavailable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthStatus" }
+  /me/feedback:
+    get:
+      operationId: listMyFeedback
+      tags: [profile]
+      responses:
+        "200":
+          description: Feedback submitted by the member
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeedbackList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createMyFeedback
+      tags: [profile]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FeedbackInput" }
+      responses:
+        "201":
+          description: Feedback submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Feedback" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /admin/beta/feedback:
+    get:
+      operationId: listBetaFeedback
+      tags: [admin]
+      parameters:
+        - in: query
+          name: status
+          schema: { $ref: "#/components/schemas/FeedbackStatus" }
+        - in: query
+          name: kind
+          schema: { $ref: "#/components/schemas/FeedbackKind" }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: Feedback queue
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeedbackList" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /admin/beta/feedback/{feedbackId}:
+    patch:
+      operationId: moderateBetaFeedback
+      tags: [admin]
+      parameters:
+        - in: path
+          name: feedbackId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FeedbackModerationInput" }
+      responses:
+        "200":
+          description: Moderated feedback
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Feedback" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /admin/beta/summary:
+    get:
+      operationId: getBetaSummary
+      tags: [admin]
+      responses:
+        "200":
+          description: Aggregate beta summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BetaSummary" }
+  /admin/beta/audit:
+    get:
+      operationId: listBetaAudit
+      tags: [admin]
+      parameters:
+        - in: query
+          name: action
+          schema: { type: string, maxLength: 100 }
+        - in: query
+          name: entityType
+          schema: { type: string, maxLength: 100 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - in: query
+          name: offset
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: Safe operator audit events
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditList" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /quiz/config:
     get:
       operationId: getQuizConfig
@@ -44,6 +176,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/QuizConfig"
+  /quiz/daily:
+    get:
+      operationId: getDailyQuiz
+      tags: [quiz]
+      summary: Resolve the active UTC daily challenge
+      responses:
+        "200":
+          description: Active daily challenge metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DailyQuiz" }
+        "404":
+          description: No active challenge is scheduled for the current UTC date
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /quiz/attempts:
     post:
       operationId: startQuizAttempt
@@ -620,6 +768,97 @@ components:
       properties:
         status:
           type: string
+    FeedbackKind:
+      type: string
+      enum: [question_accuracy, technical, accessibility, general]
+    FeedbackStatus:
+      type: string
+      enum: [open, in_review, resolved, dismissed]
+    FeedbackInput:
+      type: object
+      required: [kind, message]
+      properties:
+        kind: { $ref: "#/components/schemas/FeedbackKind" }
+        message: { type: string, minLength: 1, maxLength: 5000 }
+        questionId: { type: string, format: uuid }
+        questionVersionId: { type: string, format: uuid }
+    FeedbackModerationInput:
+      type: object
+      required: [status, expectedStatus]
+      properties:
+        status: { $ref: "#/components/schemas/FeedbackStatus" }
+        expectedStatus: { $ref: "#/components/schemas/FeedbackStatus" }
+        resolutionNote: { type: string, maxLength: 2000, nullable: true }
+    Feedback:
+      type: object
+      required: [id, kind, message, status, questionId, questionVersionId, resolutionNote, resolvedAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: "#/components/schemas/FeedbackKind" }
+        message: { type: string }
+        status: { $ref: "#/components/schemas/FeedbackStatus" }
+        questionId: { type: string, format: uuid, nullable: true }
+        questionVersionId: { type: string, format: uuid, nullable: true }
+        resolutionNote: { type: string, nullable: true }
+        resolvedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    FeedbackList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Feedback" }
+        total: { type: integer, minimum: 0 }
+    BetaSummarySeries:
+      type: object
+      required: [date, signups, completions, uniqueCompleters]
+      properties:
+        date: { $ref: "#/components/schemas/CanonicalDailyDate" }
+        signups: { type: integer, minimum: 0 }
+        completions: { type: integer, minimum: 0 }
+        uniqueCompleters: { type: integer, minimum: 0 }
+    BetaSummary:
+      type: object
+      required: [totalMembers, completedProfiles, activeMembers7d, uniqueCompleters7d, quizCompletions7d, openFeedback, pendingReviewQuestions, approvedQuestions, scheduledActiveDaysAhead, series]
+      properties:
+        totalMembers: { type: integer, minimum: 0 }
+        completedProfiles: { type: integer, minimum: 0 }
+        activeMembers7d: { type: integer, minimum: 0 }
+        uniqueCompleters7d: { type: integer, minimum: 0 }
+        quizCompletions7d: { type: integer, minimum: 0 }
+        openFeedback: { type: integer, minimum: 0 }
+        pendingReviewQuestions: { type: integer, minimum: 0 }
+        approvedQuestions: { type: integer, minimum: 0 }
+        scheduledActiveDaysAhead: { type: integer, minimum: 0 }
+        series:
+          type: array
+          minItems: 7
+          maxItems: 7
+          items: { $ref: "#/components/schemas/BetaSummarySeries" }
+    AuditEvent:
+      type: object
+      required: [id, actorId, action, entityType, entityId, metadata, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        actorId: { type: string, maxLength: 256 }
+        action: { type: string, maxLength: 100 }
+        entityType: { type: string, maxLength: 100 }
+        entityId: { type: string, maxLength: 256 }
+        metadata:
+          type: object
+          additionalProperties:
+            oneOf: [{ type: string }, { type: number }, { type: boolean }, { type: "null" }]
+        createdAt: { type: string, format: date-time }
+    AuditList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AuditEvent" }
+        total: { type: integer, minimum: 0 }
     QuestionStatus:
       type: string
       enum: [draft, pending_review, approved, rejected, archived]
@@ -688,9 +927,17 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Taxonomy"
+    DailyQuiz:
+      type: object
+      required: [quizId, title, scheduledDate, questionCount]
+      properties:
+        quizId: { type: string, format: uuid }
+        title: { type: string }
+        scheduledDate: { $ref: "#/components/schemas/CanonicalDailyDate" }
+        questionCount: { type: integer, minimum: 0 }
     StartAttemptRequest:
       type: object
-      required: [quizId]
+      required: [quizId, idempotencyKey]
       properties:
         quizId:
           type: string

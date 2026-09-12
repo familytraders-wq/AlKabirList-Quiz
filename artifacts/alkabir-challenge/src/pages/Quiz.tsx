@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   getGetQuizAttemptQueryKey,
   getGetQuizResultQueryKey,
@@ -8,6 +9,8 @@ import {
   useGetQuizAttempt,
   useGetQuizResult,
   useStartQuizAttempt,
+  useGetDailyQuiz,
+  getGetDailyQuizQueryKey,
   type AnswerResult,
   type AttemptState,
   type QuizResult,
@@ -26,6 +29,8 @@ import {
   resolveChallengeDateLabel,
   useUtcDayBoundary,
 } from "@/hooks/use-utc-day-boundary";
+import { analytics } from "@/lib/analytics";
+import { ReportQuestionDialog } from "@/components/feedback/ReportQuestionDialog";
 
 const ATTEMPT_STORAGE_KEY = "alkabir.quiz.attemptId";
 const QUIZ_ID_QUERY_KEY = "quizId";
@@ -37,12 +42,24 @@ function readStoredAttemptId(storageKey: string) {
   return window.localStorage.getItem(storageKey);
 }
 
-function getQuizId() {
+function getOrMintIdempotencyKey(quizId: string) {
+  const key = `alkabir.quiz.startIdempotency:${quizId}`;
   if (typeof window !== "undefined") {
-    const queryQuizId = new URLSearchParams(window.location.search).get(QUIZ_ID_QUERY_KEY);
-    if (queryQuizId) return queryQuizId;
+    let value = window.localStorage.getItem(key);
+    if (!value) {
+      value = crypto.randomUUID();
+      window.localStorage.setItem(key, value);
+    }
+    return value;
   }
-  return import.meta.env.VITE_DAILY_QUIZ_ID as string | undefined;
+  return crypto.randomUUID();
+}
+
+function getQueryQuizId() {
+  if (typeof window !== "undefined") {
+    return new URLSearchParams(window.location.search).get(QUIZ_ID_QUERY_KEY);
+  }
+  return null;
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -104,9 +121,29 @@ function LoadingNotice({ message }: { message: string }) {
 
 export function Quiz() {
   const [, setLocation] = useLocation();
-  const quizId = getQuizId();
-  const attemptStorageKey = quizId ? `${ATTEMPT_STORAGE_KEY}:${quizId}` : ATTEMPT_STORAGE_KEY;
-  const [attemptId, setAttemptId] = useState<string | null>(() => readStoredAttemptId(attemptStorageKey));
+  const queryQuizId = getQueryQuizId();
+  const queryClient = useQueryClient();
+
+  const dailyQuizQuery = useGetDailyQuiz({
+    query: {
+      enabled: !queryQuizId,
+      queryKey: getGetDailyQuizQueryKey(),
+      retry: false,
+    },
+  });
+
+  const quizId = queryQuizId || dailyQuizQuery.data?.quizId;
+  const attemptStorageKey = quizId ? `${ATTEMPT_STORAGE_KEY}:${quizId}` : null;
+  const [hasCheckedStorageFor, setHasCheckedStorageFor] = useState<string | null>(
+    queryQuizId ? queryQuizId : null
+  );
+  const [attemptId, setAttemptId] = useState<string | null>(() => {
+    if (queryQuizId) {
+      return readStoredAttemptId(`${ATTEMPT_STORAGE_KEY}:${queryQuizId}`);
+    }
+    return null;
+  });
+
   const [attemptState, setAttemptState] = useState<AttemptState | null>(null);
   const [answeredVersionIds, setAnsweredVersionIds] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -144,17 +181,55 @@ export function Quiz() {
     },
   });
 
+  const previousDateRef = useRef(liveChallengeDate);
   useEffect(() => {
-    if (!quizId || attemptId || startRequested.current || startAttempt.isPending) return;
+    if (previousDateRef.current !== liveChallengeDate) {
+      previousDateRef.current = liveChallengeDate;
+      if (!queryQuizId) {
+        void queryClient.invalidateQueries({ queryKey: getGetDailyQuizQueryKey() });
+      }
+    }
+  }, [liveChallengeDate, queryQuizId, queryClient]);
+
+  useEffect(() => {
+    if (quizId && hasCheckedStorageFor !== quizId) {
+      // Clear memory state for new quiz
+      setAttemptState(null);
+      setAnsweredVersionIds([]);
+      setCurrentIndex(0);
+      setSelectedId(null);
+      setFeedback(null);
+      setStatus("answering");
+      setFinalResult(null);
+      setIsResultRetrying(false);
+      startRequested.current = false;
+      startAttempt.reset();
+
+      // Hydrate
+      const storedId = readStoredAttemptId(`${ATTEMPT_STORAGE_KEY}:${quizId}`);
+      setAttemptId(storedId);
+      setHasCheckedStorageFor(quizId);
+    }
+  }, [quizId, hasCheckedStorageFor, startAttempt]);
+
+  useEffect(() => {
+    if (!quizId || hasCheckedStorageFor !== quizId || attemptId || startRequested.current || startAttempt.isPending) return;
 
     startRequested.current = true;
-    startAttempt.mutate({
-      data: {
-        quizId,
-        idempotencyKey: crypto.randomUUID(),
+    startAttempt.mutate(
+      {
+        data: {
+          quizId,
+          idempotencyKey: getOrMintIdempotencyKey(quizId),
+        },
       },
-    });
-  }, [attemptId, quizId, startAttempt]);
+      {
+        onSuccess: () => {
+          analytics.quizStarted();
+        },
+      },
+    );
+  }, [attemptId, quizId, hasCheckedStorageFor, startAttempt]);
 
   useEffect(() => {
     if (!startAttempt.data || attemptId) return;
@@ -162,7 +237,9 @@ export function Quiz() {
     setAttemptId(state.attemptId);
     setAttemptState(state);
     setAnsweredVersionIds(state.answeredQuestionIds);
-    window.localStorage.setItem(attemptStorageKey, state.attemptId);
+    if (attemptStorageKey) {
+      window.localStorage.setItem(attemptStorageKey, state.attemptId);
+    }
   }, [attemptId, attemptStorageKey, startAttempt.data]);
 
   useEffect(() => {
@@ -255,11 +332,20 @@ export function Quiz() {
   const handleComplete = () => {
     if (!attemptId || completeAttempt.isPending) return;
     completeAttempt.reset();
-    completeAttempt.mutate({ attemptId });
+    completeAttempt.mutate(
+      { attemptId },
+      {
+        onSuccess: () => {
+          analytics.quizCompleted();
+        },
+      },
+    );
   };
 
   const resetAttempt = () => {
-    window.localStorage.removeItem(attemptStorageKey);
+    if (attemptStorageKey) {
+      window.localStorage.removeItem(attemptStorageKey);
+    }
     setAttemptId(null);
     setAttemptState(null);
     setAnsweredVersionIds([]);
@@ -281,11 +367,50 @@ export function Quiz() {
       )
     : null;
 
+  const isResolvingQuizId = !queryQuizId && dailyQuizQuery.isLoading;
+
+  if (isResolvingQuizId) {
+    return (
+      <PageShell>
+        <StatusContent title="Loading challenge">
+          <LoadingNotice message="Finding today’s challenge…" />
+        </StatusContent>
+      </PageShell>
+    );
+  }
+
+  if (dailyQuizQuery.isError) {
+    const status = (dailyQuizQuery.error as any)?.status;
+    if (status === 404) {
+      return (
+        <PageShell>
+          <StatusContent title="No active challenge">
+            <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+              <p className="text-foreground">There is no challenge scheduled for today. Please check back later.</p>
+            </div>
+          </StatusContent>
+        </PageShell>
+      );
+    }
+    return (
+      <PageShell>
+        <StatusContent title="Could not load challenge">
+          <ErrorNotice
+            message={getErrorMessage(dailyQuizQuery.error, "The daily challenge could not be loaded.")}
+            onRetry={() => void dailyQuizQuery.refetch()}
+          />
+        </StatusContent>
+      </PageShell>
+    );
+  }
+
   if (!quizId) {
     return (
       <PageShell>
-        <StatusContent title="Today’s challenge is not configured">
-          <ErrorNotice message="The daily challenge ID is missing. Please open a configured challenge link or set VITE_DAILY_QUIZ_ID." />
+        <StatusContent title="No active challenge">
+          <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
+            <p className="text-foreground">There is no challenge scheduled for today. Please check back later.</p>
+          </div>
         </StatusContent>
       </PageShell>
     );
@@ -530,9 +655,14 @@ export function Quiz() {
                 {feedback.isCorrect ? "That’s right." : "A thoughtful try."}
               </div>
               <p className="text-sm leading-relaxed text-foreground">{feedback.explanation}</p>
-              {feedback.sources[0]?.title && (
-                <p className="mt-3 text-xs font-medium text-muted-foreground">Source: {feedback.sources[0].title}</p>
-              )}
+              <div className="mt-3 flex items-center justify-between">
+                {feedback.sources[0]?.title ? (
+                  <p className="text-xs font-medium text-muted-foreground">Source: {feedback.sources[0].title}</p>
+                ) : (
+                  <div />
+                )}
+                <ReportQuestionDialog versionId={activeQuestion.versionId} />
+              </div>
             </div>
           )}
         </div>

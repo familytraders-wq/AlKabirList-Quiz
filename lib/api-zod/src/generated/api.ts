@@ -16,6 +16,220 @@ export const HealthCheckResponse = zod.object({
 })
 
 
+export const LiveHealthResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const ReadyHealthResponse = zod.object({
+  "status": zod.string()
+})
+
+
+export const listMyFeedbackResponseTotalMin = 0;
+
+
+
+export const ListMyFeedbackResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "kind": zod.enum(['question_accuracy', 'technical', 'accessibility', 'general']),
+  "message": zod.string(),
+  "status": zod.enum(['open', 'in_review', 'resolved', 'dismissed']),
+  "questionId": zod.string().uuid().nullable(),
+  "questionVersionId": zod.string().uuid().nullable(),
+  "resolutionNote": zod.string().nullable(),
+  "resolvedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})),
+  "total": zod.number().int().min(listMyFeedbackResponseTotalMin)
+})
+
+
+export const createMyFeedbackBodyMessageMax = 5000;
+
+
+
+export const CreateMyFeedbackBody = zod.object({
+  "kind": zod.enum(['question_accuracy', 'technical', 'accessibility', 'general']),
+  "message": zod.string().min(1).max(createMyFeedbackBodyMessageMax),
+  "questionId": zod.string().uuid().optional(),
+  "questionVersionId": zod.string().uuid().optional()
+})
+
+export const CreateMyFeedbackResponse = zod.object({
+  "id": zod.string().uuid(),
+  "kind": zod.enum(['question_accuracy', 'technical', 'accessibility', 'general']),
+  "message": zod.string(),
+  "status": zod.enum(['open', 'in_review', 'resolved', 'dismissed']),
+  "questionId": zod.string().uuid().nullable(),
+  "questionVersionId": zod.string().uuid().nullable(),
+  "resolutionNote": zod.string().nullable(),
+  "resolvedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+export const listBetaFeedbackQueryLimitDefault = 25;
+export const listBetaFeedbackQueryLimitMax = 100;
+
+export const listBetaFeedbackQueryOffsetDefault = 0;
+export const listBetaFeedbackQueryOffsetMin = 0;
+
+
+
+export const ListBetaFeedbackQueryParams = zod.object({
+  "status": zod.enum(['open', 'in_review', 'resolved', 'dismissed']).optional(),
+  "kind": zod.enum(['question_accuracy', 'technical', 'accessibility', 'general']).optional(),
+  "limit": zod.coerce.number().int().min(1).max(listBetaFeedbackQueryLimitMax).default(listBetaFeedbackQueryLimitDefault),
+  "offset": zod.coerce.number().int().min(listBetaFeedbackQueryOffsetMin).default(listBetaFeedbackQueryOffsetDefault)
+})
+
+export const listBetaFeedbackResponseTotalMin = 0;
+
+
+
+export const ListBetaFeedbackResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "kind": zod.enum(['question_accuracy', 'technical', 'accessibility', 'general']),
+  "message": zod.string(),
+  "status": zod.enum(['open', 'in_review', 'resolved', 'dismissed']),
+  "questionId": zod.string().uuid().nullable(),
+  "questionVersionId": zod.string().uuid().nullable(),
+  "resolutionNote": zod.string().nullable(),
+  "resolvedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})),
+  "total": zod.number().int().min(listBetaFeedbackResponseTotalMin)
+})
+
+
+export const ModerateBetaFeedbackParams = zod.object({
+  "feedbackId": zod.coerce.string().uuid()
+})
+
+export const moderateBetaFeedbackBodyResolutionNoteMax = 2000;
+
+
+
+export const ModerateBetaFeedbackBody = zod.object({
+  "status": zod.enum(['open', 'in_review', 'resolved', 'dismissed']),
+  "expectedStatus": zod.enum(['open', 'in_review', 'resolved', 'dismissed']),
+  "resolutionNote": zod.string().max(moderateBetaFeedbackBodyResolutionNoteMax).nullish()
+})
+
+export const ModerateBetaFeedbackResponse = zod.object({
+  "id": zod.string().uuid(),
+  "kind": zod.enum(['question_accuracy', 'technical', 'accessibility', 'general']),
+  "message": zod.string(),
+  "status": zod.enum(['open', 'in_review', 'resolved', 'dismissed']),
+  "questionId": zod.string().uuid().nullable(),
+  "questionVersionId": zod.string().uuid().nullable(),
+  "resolutionNote": zod.string().nullable(),
+  "resolvedAt": zod.coerce.date().nullable(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+export const getBetaSummaryResponseTotalMembersMin = 0;
+
+export const getBetaSummaryResponseCompletedProfilesMin = 0;
+
+export const getBetaSummaryResponseActiveMembers7dMin = 0;
+
+export const getBetaSummaryResponseUniqueCompleters7dMin = 0;
+
+export const getBetaSummaryResponseQuizCompletions7dMin = 0;
+
+export const getBetaSummaryResponseOpenFeedbackMin = 0;
+
+export const getBetaSummaryResponsePendingReviewQuestionsMin = 0;
+
+export const getBetaSummaryResponseApprovedQuestionsMin = 0;
+
+export const getBetaSummaryResponseScheduledActiveDaysAheadMin = 0;
+
+export const getBetaSummaryResponseSeriesItemDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const getBetaSummaryResponseSeriesItemSignupsMin = 0;
+
+export const getBetaSummaryResponseSeriesItemCompletionsMin = 0;
+
+export const getBetaSummaryResponseSeriesItemUniqueCompletersMin = 0;
+
+export const getBetaSummaryResponseSeriesMin = 7;
+export const getBetaSummaryResponseSeriesMax = 7;
+
+
+
+export const GetBetaSummaryResponse = zod.object({
+  "totalMembers": zod.number().int().min(getBetaSummaryResponseTotalMembersMin),
+  "completedProfiles": zod.number().int().min(getBetaSummaryResponseCompletedProfilesMin),
+  "activeMembers7d": zod.number().int().min(getBetaSummaryResponseActiveMembers7dMin),
+  "uniqueCompleters7d": zod.number().int().min(getBetaSummaryResponseUniqueCompleters7dMin),
+  "quizCompletions7d": zod.number().int().min(getBetaSummaryResponseQuizCompletions7dMin),
+  "openFeedback": zod.number().int().min(getBetaSummaryResponseOpenFeedbackMin),
+  "pendingReviewQuestions": zod.number().int().min(getBetaSummaryResponsePendingReviewQuestionsMin),
+  "approvedQuestions": zod.number().int().min(getBetaSummaryResponseApprovedQuestionsMin),
+  "scheduledActiveDaysAhead": zod.number().int().min(getBetaSummaryResponseScheduledActiveDaysAheadMin),
+  "series": zod.array(zod.object({
+  "date": zod.string().regex(getBetaSummaryResponseSeriesItemDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
+  "signups": zod.number().int().min(getBetaSummaryResponseSeriesItemSignupsMin),
+  "completions": zod.number().int().min(getBetaSummaryResponseSeriesItemCompletionsMin),
+  "uniqueCompleters": zod.number().int().min(getBetaSummaryResponseSeriesItemUniqueCompletersMin)
+})).min(getBetaSummaryResponseSeriesMin).max(getBetaSummaryResponseSeriesMax)
+})
+
+
+export const listBetaAuditQueryActionMax = 100;
+
+export const listBetaAuditQueryEntityTypeMax = 100;
+
+export const listBetaAuditQueryLimitDefault = 25;
+export const listBetaAuditQueryLimitMax = 100;
+
+export const listBetaAuditQueryOffsetDefault = 0;
+export const listBetaAuditQueryOffsetMin = 0;
+
+
+
+export const ListBetaAuditQueryParams = zod.object({
+  "action": zod.coerce.string().max(listBetaAuditQueryActionMax).optional(),
+  "entityType": zod.coerce.string().max(listBetaAuditQueryEntityTypeMax).optional(),
+  "limit": zod.coerce.number().int().min(1).max(listBetaAuditQueryLimitMax).default(listBetaAuditQueryLimitDefault),
+  "offset": zod.coerce.number().int().min(listBetaAuditQueryOffsetMin).default(listBetaAuditQueryOffsetDefault)
+})
+
+export const listBetaAuditResponseItemsItemActorIdMax = 256;
+
+export const listBetaAuditResponseItemsItemActionMax = 100;
+
+export const listBetaAuditResponseItemsItemEntityTypeMax = 100;
+
+export const listBetaAuditResponseItemsItemEntityIdMax = 256;
+
+export const listBetaAuditResponseTotalMin = 0;
+
+
+
+export const ListBetaAuditResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "actorId": zod.string().max(listBetaAuditResponseItemsItemActorIdMax),
+  "action": zod.string().max(listBetaAuditResponseItemsItemActionMax),
+  "entityType": zod.string().max(listBetaAuditResponseItemsItemEntityTypeMax),
+  "entityId": zod.string().max(listBetaAuditResponseItemsItemEntityIdMax),
+  "metadata": zod.record(zod.string(), zod.union([zod.string(),zod.number(),zod.boolean(),zod.null()])),
+  "createdAt": zod.coerce.date()
+})),
+  "total": zod.number().int().min(listBetaAuditResponseTotalMin)
+})
+
+
 /**
  * @summary Get active quiz configuration
  */
@@ -44,6 +258,22 @@ export const GetQuizConfigResponse = zod.object({
 
 
 /**
+ * @summary Resolve the active UTC daily challenge
+ */
+export const getDailyQuizResponseScheduledDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+export const getDailyQuizResponseQuestionCountMin = 0;
+
+
+
+export const GetDailyQuizResponse = zod.object({
+  "quizId": zod.string().uuid(),
+  "title": zod.string(),
+  "scheduledDate": zod.string().regex(getDailyQuizResponseScheduledDateRegExp).describe('Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.'),
+  "questionCount": zod.number().int().min(getDailyQuizResponseQuestionCountMin)
+})
+
+
+/**
  * @summary Start or resume a quiz attempt
  */
 export const startQuizAttemptHeaderIdempotencyKeyMin = 8;
@@ -63,7 +293,7 @@ export const startQuizAttemptBodyIdempotencyKeyMax = 128;
 export const StartQuizAttemptBody = zod.object({
   "quizId": zod.string().uuid(),
   "audienceId": zod.string().uuid().optional(),
-  "idempotencyKey": zod.string().min(startQuizAttemptBodyIdempotencyKeyMin).max(startQuizAttemptBodyIdempotencyKeyMax).optional()
+  "idempotencyKey": zod.string().min(startQuizAttemptBodyIdempotencyKeyMin).max(startQuizAttemptBodyIdempotencyKeyMax)
 })
 
 export const startQuizAttemptResponseChallengeDateRegExp = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');

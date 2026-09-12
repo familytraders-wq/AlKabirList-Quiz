@@ -19,8 +19,10 @@ import { Quiz } from "@/pages/Quiz";
 import { AdminUsers } from "@/pages/AdminUsers";
 import { AdminContent } from "@/pages/AdminContent";
 import { AdminSchedule } from "@/pages/AdminSchedule";
+import { AdminBeta } from "@/pages/AdminBeta";
 import { Onboarding } from "@/pages/Onboarding";
 import { Profile } from "@/pages/Profile";
+import { Feedback } from "@/pages/Feedback";
 import { GuestProgressPrompt } from "@/components/auth/GuestProgressPrompt";
 import { useGetAuthMe, getGetAuthMeQueryKey } from "@workspace/api-client-react";
 
@@ -193,8 +195,14 @@ function Router() {
         <Route path="/admin/users" component={AdminUsers} />
         <Route path="/admin/content" component={AdminContent} />
         <Route path="/admin/schedule" component={AdminSchedule} />
+        <Route path="/admin/beta" component={AdminBeta} />
         <Route path="/onboarding" component={Onboarding} />
         <Route path="/profile" component={Profile} />
+        <Route path="/feedback">
+          <RequireProfileComplete>
+            <Feedback />
+          </RequireProfileComplete>
+        </Route>
         <Route path="/sign-in/*?" component={SignInPage} />
         <Route path="/sign-up/*?" component={SignUpPage} />
         <Route component={NotFound} />

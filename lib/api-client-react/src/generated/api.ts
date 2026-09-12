@@ -29,9 +29,17 @@ import type {
   AdminUserList,
   AnswerResult,
   AttemptState,
+  AuditList,
   AuthMe,
   BadRequestResponse,
+  BetaSummary,
   ConflictResponse,
+  DailyQuiz,
+  Error,
+  Feedback,
+  FeedbackInput,
+  FeedbackList,
+  FeedbackModerationInput,
   ForbiddenResponse,
   GenerationRun,
   GenerationRunRequest,
@@ -39,6 +47,8 @@ import type {
   LinkGuestProgressRequest,
   LinkGuestProgressResult,
   ListAdminQuestionsParams,
+  ListBetaAuditParams,
+  ListBetaFeedbackParams,
   MemberProfile,
   MemberProfileUpdate,
   NotFoundResponse,
@@ -160,6 +170,611 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
+export const getLiveHealthUrl = () => {
+
+
+
+
+  return `/api/livez`
+}
+
+export const liveHealth = async ( options?: Parameters<typeof customFetch>[1]): Promise<HealthStatus> => {
+
+  return customFetch<HealthStatus>(getLiveHealthUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getLiveHealthQueryKey = () => {
+    return [
+    `/api/livez`
+    ] as const;
+    }
+
+
+export const getLiveHealthQueryOptions = <TData = Awaited<ReturnType<typeof liveHealth>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof liveHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getLiveHealthQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof liveHealth>>> = ({ signal }) => liveHealth({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof liveHealth>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type LiveHealthQueryResult = NonNullable<Awaited<ReturnType<typeof liveHealth>>>
+export type LiveHealthQueryError = ErrorType<unknown>
+
+
+
+export function useLiveHealth<TData = Awaited<ReturnType<typeof liveHealth>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof liveHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getLiveHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReadyHealthUrl = () => {
+
+
+
+
+  return `/api/readyz`
+}
+
+export const readyHealth = async ( options?: Parameters<typeof customFetch>[1]): Promise<HealthStatus> => {
+
+  return customFetch<HealthStatus>(getReadyHealthUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getReadyHealthQueryKey = () => {
+    return [
+    `/api/readyz`
+    ] as const;
+    }
+
+
+export const getReadyHealthQueryOptions = <TData = Awaited<ReturnType<typeof readyHealth>>, TError = ErrorType<HealthStatus>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof readyHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getReadyHealthQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof readyHealth>>> = ({ signal }) => readyHealth({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof readyHealth>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ReadyHealthQueryResult = NonNullable<Awaited<ReturnType<typeof readyHealth>>>
+export type ReadyHealthQueryError = ErrorType<HealthStatus>
+
+
+
+export function useReadyHealth<TData = Awaited<ReturnType<typeof readyHealth>>, TError = ErrorType<HealthStatus>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof readyHealth>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getReadyHealthQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListMyFeedbackUrl = () => {
+
+
+
+
+  return `/api/me/feedback`
+}
+
+export const listMyFeedback = async ( options?: Parameters<typeof customFetch>[1]): Promise<FeedbackList> => {
+
+  return customFetch<FeedbackList>(getListMyFeedbackUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListMyFeedbackQueryKey = () => {
+    return [
+    `/api/me/feedback`
+    ] as const;
+    }
+
+
+export const getListMyFeedbackQueryOptions = <TData = Awaited<ReturnType<typeof listMyFeedback>>, TError = ErrorType<UnauthorizedResponse>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMyFeedback>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListMyFeedbackQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listMyFeedback>>> = ({ signal }) => listMyFeedback({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listMyFeedback>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListMyFeedbackQueryResult = NonNullable<Awaited<ReturnType<typeof listMyFeedback>>>
+export type ListMyFeedbackQueryError = ErrorType<UnauthorizedResponse>
+
+
+
+export function useListMyFeedback<TData = Awaited<ReturnType<typeof listMyFeedback>>, TError = ErrorType<UnauthorizedResponse>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listMyFeedback>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListMyFeedbackQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateMyFeedbackUrl = () => {
+
+
+
+
+  return `/api/me/feedback`
+}
+
+export const createMyFeedback = async (feedbackInput: FeedbackInput, options?: Parameters<typeof customFetch>[1]): Promise<Feedback> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Feedback>(getCreateMyFeedbackUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(feedbackInput)
+  }
+);}
+
+
+
+
+
+export const getCreateMyFeedbackMutationKey = () => ['createMyFeedback'] as const;
+
+export const getCreateMyFeedbackMutationOptions = <TError = ErrorType<BadRequestResponse | UnauthorizedResponse | ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createMyFeedback>>, TError,CreateMyFeedbackMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createMyFeedback>>, TError,CreateMyFeedbackMutationVariables, TContext> => {
+
+const mutationKey = getCreateMyFeedbackMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createMyFeedback>>, CreateMyFeedbackMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createMyFeedback(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateMyFeedbackMutationResult = NonNullable<Awaited<ReturnType<typeof createMyFeedback>>>
+    export type CreateMyFeedbackMutationBody = BodyType<FeedbackInput>
+    export type CreateMyFeedbackMutationError = ErrorType<BadRequestResponse | UnauthorizedResponse | ForbiddenResponse>
+    export type CreateMyFeedbackMutationVariables = {data: BodyType<FeedbackInput>}
+
+    export const useCreateMyFeedback = <TError = ErrorType<BadRequestResponse | UnauthorizedResponse | ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createMyFeedback>>, TError,CreateMyFeedbackMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createMyFeedback>>,
+        TError,
+        CreateMyFeedbackMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateMyFeedbackMutationOptions(options));
+    }
+
+export const getListBetaFeedbackUrl = (params?: ListBetaFeedbackParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/beta/feedback?${stringifiedParams}` : `/api/admin/beta/feedback`
+}
+
+export const listBetaFeedback = async (params?: ListBetaFeedbackParams, options?: Parameters<typeof customFetch>[1]): Promise<FeedbackList> => {
+
+  return customFetch<FeedbackList>(getListBetaFeedbackUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBetaFeedbackQueryKey = (params?: ListBetaFeedbackParams,) => {
+    return [
+    `/api/admin/beta/feedback`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListBetaFeedbackQueryOptions = <TData = Awaited<ReturnType<typeof listBetaFeedback>>, TError = ErrorType<ForbiddenResponse>>(params?: ListBetaFeedbackParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBetaFeedback>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBetaFeedbackQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBetaFeedback>>> = ({ signal }) => listBetaFeedback(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBetaFeedback>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBetaFeedbackQueryResult = NonNullable<Awaited<ReturnType<typeof listBetaFeedback>>>
+export type ListBetaFeedbackQueryError = ErrorType<ForbiddenResponse>
+
+
+
+export function useListBetaFeedback<TData = Awaited<ReturnType<typeof listBetaFeedback>>, TError = ErrorType<ForbiddenResponse>>(
+ params?: ListBetaFeedbackParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBetaFeedback>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBetaFeedbackQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getModerateBetaFeedbackUrl = (feedbackId: string,) => {
+
+
+
+
+  return `/api/admin/beta/feedback/${feedbackId}`
+}
+
+export const moderateBetaFeedback = async (feedbackId: string,
+    feedbackModerationInput: FeedbackModerationInput, options?: Parameters<typeof customFetch>[1]): Promise<Feedback> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<Feedback>(getModerateBetaFeedbackUrl(feedbackId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(feedbackModerationInput)
+  }
+);}
+
+
+
+
+
+export const getModerateBetaFeedbackMutationKey = () => ['moderateBetaFeedback'] as const;
+
+export const getModerateBetaFeedbackMutationOptions = <TError = ErrorType<ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof moderateBetaFeedback>>, TError,ModerateBetaFeedbackMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof moderateBetaFeedback>>, TError,ModerateBetaFeedbackMutationVariables, TContext> => {
+
+const mutationKey = getModerateBetaFeedbackMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof moderateBetaFeedback>>, ModerateBetaFeedbackMutationVariables> = (props) => {
+          const {feedbackId,data} = props ?? {};
+
+          return  moderateBetaFeedback(feedbackId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ModerateBetaFeedbackMutationResult = NonNullable<Awaited<ReturnType<typeof moderateBetaFeedback>>>
+    export type ModerateBetaFeedbackMutationBody = BodyType<FeedbackModerationInput>
+    export type ModerateBetaFeedbackMutationError = ErrorType<ConflictResponse>
+    export type ModerateBetaFeedbackMutationVariables = {feedbackId: string;data: BodyType<FeedbackModerationInput>}
+
+    export const useModerateBetaFeedback = <TError = ErrorType<ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof moderateBetaFeedback>>, TError,ModerateBetaFeedbackMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof moderateBetaFeedback>>,
+        TError,
+        ModerateBetaFeedbackMutationVariables,
+        TContext
+      > => {
+      return useMutation(getModerateBetaFeedbackMutationOptions(options));
+    }
+
+export const getGetBetaSummaryUrl = () => {
+
+
+
+
+  return `/api/admin/beta/summary`
+}
+
+export const getBetaSummary = async ( options?: Parameters<typeof customFetch>[1]): Promise<BetaSummary> => {
+
+  return customFetch<BetaSummary>(getGetBetaSummaryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBetaSummaryQueryKey = () => {
+    return [
+    `/api/admin/beta/summary`
+    ] as const;
+    }
+
+
+export const getGetBetaSummaryQueryOptions = <TData = Awaited<ReturnType<typeof getBetaSummary>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBetaSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBetaSummaryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBetaSummary>>> = ({ signal }) => getBetaSummary({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBetaSummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBetaSummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getBetaSummary>>>
+export type GetBetaSummaryQueryError = ErrorType<unknown>
+
+
+
+export function useGetBetaSummary<TData = Awaited<ReturnType<typeof getBetaSummary>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBetaSummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBetaSummaryQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListBetaAuditUrl = (params?: ListBetaAuditParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/beta/audit?${stringifiedParams}` : `/api/admin/beta/audit`
+}
+
+export const listBetaAudit = async (params?: ListBetaAuditParams, options?: Parameters<typeof customFetch>[1]): Promise<AuditList> => {
+
+  return customFetch<AuditList>(getListBetaAuditUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBetaAuditQueryKey = (params?: ListBetaAuditParams,) => {
+    return [
+    `/api/admin/beta/audit`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListBetaAuditQueryOptions = <TData = Awaited<ReturnType<typeof listBetaAudit>>, TError = ErrorType<ForbiddenResponse>>(params?: ListBetaAuditParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBetaAudit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBetaAuditQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBetaAudit>>> = ({ signal }) => listBetaAudit(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBetaAudit>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBetaAuditQueryResult = NonNullable<Awaited<ReturnType<typeof listBetaAudit>>>
+export type ListBetaAuditQueryError = ErrorType<ForbiddenResponse>
+
+
+
+export function useListBetaAudit<TData = Awaited<ReturnType<typeof listBetaAudit>>, TError = ErrorType<ForbiddenResponse>>(
+ params?: ListBetaAuditParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBetaAudit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBetaAuditQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getGetQuizConfigUrl = () => {
 
 
@@ -225,6 +840,83 @@ export function useGetQuizConfig<TData = Awaited<ReturnType<typeof getQuizConfig
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetQuizConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetDailyQuizUrl = () => {
+
+
+
+
+  return `/api/quiz/daily`
+}
+
+/**
+ * @summary Resolve the active UTC daily challenge
+ */
+export const getDailyQuiz = async ( options?: Parameters<typeof customFetch>[1]): Promise<DailyQuiz> => {
+
+  return customFetch<DailyQuiz>(getGetDailyQuizUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDailyQuizQueryKey = () => {
+    return [
+    `/api/quiz/daily`
+    ] as const;
+    }
+
+
+export const getGetDailyQuizQueryOptions = <TData = Awaited<ReturnType<typeof getDailyQuiz>>, TError = ErrorType<Error>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDailyQuiz>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDailyQuizQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDailyQuiz>>> = ({ signal }) => getDailyQuiz({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDailyQuiz>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDailyQuizQueryResult = NonNullable<Awaited<ReturnType<typeof getDailyQuiz>>>
+export type GetDailyQuizQueryError = ErrorType<Error>
+
+
+/**
+ * @summary Resolve the active UTC daily challenge
+ */
+
+export function useGetDailyQuiz<TData = Awaited<ReturnType<typeof getDailyQuiz>>, TError = ErrorType<Error>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDailyQuiz>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDailyQuizQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

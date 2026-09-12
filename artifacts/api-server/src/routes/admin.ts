@@ -46,6 +46,7 @@ import {
 } from "@workspace/db/schema";
 import { getOwner, requireAdmin, requireReviewer } from "../middlewares/auth";
 import { csrfProtection } from "../lib/security";
+import { writeAuditEvent } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -136,6 +137,13 @@ async function insertQuestionVersion(
         })),
       );
     }
+    await writeAuditEvent(tx, {
+      actorId: ownerId,
+      action: "question_created",
+      entityType: "question",
+      entityId: question.id,
+      metadata: { status },
+    });
     return question.id;
   });
 }
@@ -209,6 +217,13 @@ async function changeUserRole(
       }
       await tx.delete(userRoles).where(and(eq(userRoles.userId, userId), eq(userRoles.role, role)));
     }
+    await writeAuditEvent(tx, {
+      actorId,
+      action: action === "grant" ? "role_granted" : "role_revoked",
+      entityType: "user_role",
+      entityId: userId,
+      metadata: { role },
+    });
     return { user: target };
   });
 }
@@ -322,6 +337,13 @@ router.patch("/admin/quiz/questions/:questionId", csrfProtection, async (req, re
         .update(questions)
         .set({ categoryId: parsed.data.categoryId, difficultyId: parsed.data.difficultyId, status: "draft", currentVersionId: version.id, updatedAt: new Date() })
         .where(eq(questions.id, question.id));
+      await writeAuditEvent(tx, {
+        actorId: ownerId,
+        action: "question_updated",
+        entityType: "question",
+        entityId: question.id,
+        metadata: { status: "draft" },
+      });
       return version;
     });
     const item = await adminQuestion(question.id);
@@ -378,6 +400,13 @@ router.post("/admin/quiz/questions/:questionId/reviews", csrfProtection, async (
         toStatus: nextStatus,
         decision: parsed.data.decision,
         note: parsed.data.note,
+      });
+      await writeAuditEvent(tx, {
+        actorId: reviewerId,
+        action: "question_reviewed",
+        entityType: "question",
+        entityId: question.id,
+        metadata: { fromStatus: parsed.data.expectedStatus, toStatus: nextStatus },
       });
       return { question: updated };
     });
@@ -439,6 +468,7 @@ async function validateMemberships(
 async function quizScheduleMutation(
   input: { title: string; scheduledDate: string; timezone: "UTC"; isActive: boolean; questions: QuizMembership[] },
   id?: string,
+  actorId?: string,
 ) {
   const date = new Date(`${input.scheduledDate}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== input.scheduledDate) {
@@ -470,6 +500,13 @@ async function quizScheduleMutation(
     await tx.insert(quizQuestions).values(input.questions.map((item, position) => ({
       quizId: quiz.id, versionId: item.versionId, position, points: item.points,
     })));
+    if (actorId) await writeAuditEvent(tx, {
+      actorId,
+      action: id ? "quiz_updated" : "quiz_created",
+      entityType: "quiz",
+      entityId: quiz.id,
+      metadata: { scheduledDate: input.scheduledDate, questionCount: input.questions.length },
+    });
     return { quizId: quiz.id };
   });
 }
@@ -490,7 +527,9 @@ router.post("/admin/quiz/quizzes", csrfProtection, async (req, res, next) => {
   try {
     const parsed = CreateAdminQuizBody.safeParse(req.body);
     if (!parsed.success) return badRequest(res, "Invalid quiz schedule");
-    const result = await quizScheduleMutation(parsed.data);
+    const ownerId = getOwner(res).userId;
+    if (!ownerId) { res.status(401).json({ code: "UNAUTHORIZED", message: "Sign-in required" }); return; }
+    const result = await quizScheduleMutation(parsed.data, undefined, ownerId);
     if ("error" in result) return res.status(result.error === "INVALID_DATE" || result.error === "INVALID_CONTENT" ? 400 : result.error === "NOT_FOUND" ? 404 : 409).json({ code: result.error, message: result.message });
     const item = await adminQuiz(result.quizId);
     res.status(201).json(CreateAdminQuizResponse.parse(item));
@@ -502,7 +541,9 @@ router.patch("/admin/quiz/quizzes/:quizId", csrfProtection, async (req, res, nex
     const params = UpdateAdminQuizParams.safeParse(req.params);
     const parsed = UpdateAdminQuizBody.safeParse(req.body);
     if (!params.success || !parsed.success) return badRequest(res, "Invalid quiz update");
-    const result = await quizScheduleMutation(parsed.data, params.data.quizId);
+    const ownerId = getOwner(res).userId;
+    if (!ownerId) { res.status(401).json({ code: "UNAUTHORIZED", message: "Sign-in required" }); return; }
+    const result = await quizScheduleMutation(parsed.data, params.data.quizId, ownerId);
     if ("error" in result) return res.status(result.error === "INVALID_DATE" || result.error === "INVALID_CONTENT" ? 400 : result.error === "NOT_FOUND" ? 404 : 409).json({ code: result.error, message: result.message });
     const item = await adminQuiz(params.data.quizId);
     res.json(UpdateAdminQuizResponse.parse(item));
@@ -563,6 +604,13 @@ router.post("/admin/quiz/generation-runs", requireAdmin, csrfProtection, async (
       for (const input of parsed.data.questions) {
         await insertQuestionVersionInTransaction(tx, input, ownerId, run.id, parsed.data);
       }
+      await writeAuditEvent(tx, {
+        actorId: ownerId,
+        action: "generation_run_created",
+        entityType: "generation_run",
+        entityId: run.id,
+        metadata: { outputCount: run.outputCount },
+      });
       return run;
     });
     res.status(201).json(CreateGenerationRunResponse.parse({

@@ -36,6 +36,18 @@ export const reviewDecision = pgEnum("review_decision", [
   "archive",
 ]);
 export const appRole = pgEnum("app_role", ["member", "reviewer", "admin"]);
+export const feedbackKind = pgEnum("feedback_kind", [
+  "question_accuracy",
+  "technical",
+  "accessibility",
+  "general",
+]);
+export const feedbackStatus = pgEnum("feedback_status", [
+  "open",
+  "in_review",
+  "resolved",
+  "dismissed",
+]);
 
 export const userRoleEnum = pgEnum("user_role", ["reviewer", "admin"]);
 export const users = pgTable(
@@ -234,7 +246,7 @@ export const quizAttempts = pgTable(
       { onDelete: "set null" },
     ),
     status: text("status").notNull().default("in_progress"),
-    idempotencyKey: text("idempotency_key"),
+    idempotencyKey: text("idempotency_key").notNull(),
     score: integer("score"),
     maxScore: integer("max_score"),
     completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -242,11 +254,12 @@ export const quizAttempts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("quiz_attempts_owner_idempotency_unique").on(
-      table.userId,
-      table.anonymousSessionId,
-      table.idempotencyKey,
-    ),
+    uniqueIndex("quiz_attempts_user_quiz_idempotency_unique")
+      .on(table.userId, table.quizId, table.idempotencyKey)
+      .where(sql`${table.userId} is not null`),
+    uniqueIndex("quiz_attempts_guest_quiz_idempotency_unique")
+      .on(table.anonymousSessionId, table.quizId, table.idempotencyKey)
+      .where(sql`${table.anonymousSessionId} is not null`),
     index("quiz_attempts_owner_idx").on(
       table.userId,
       table.anonymousSessionId,
@@ -341,6 +354,60 @@ export const generationRuns = pgTable("generation_runs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const memberFeedback = pgTable(
+  "member_feedback",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    submitterId: text("submitter_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: feedbackKind("kind").notNull(),
+    questionId: uuid("question_id").references(() => questions.id, { onDelete: "set null" }),
+    questionVersionId: uuid("question_version_id").references(() => questionVersions.id, {
+      onDelete: "set null",
+    }),
+    message: text("message").notNull(),
+    status: feedbackStatus("status").notNull().default("open"),
+    resolutionNote: text("resolution_note"),
+    resolvedById: text("resolved_by_id").references(() => users.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("member_feedback_message_length", sql`char_length(${table.message}) between 1 and 5000`),
+    check(
+      "member_feedback_resolution_note_length",
+      sql`${table.resolutionNote} is null or char_length(${table.resolutionNote}) <= 2000`,
+    ),
+    index("member_feedback_submitter_idx").on(table.submitterId),
+    index("member_feedback_status_created_idx").on(table.status, table.createdAt),
+  ],
+);
+
+export const operatorAuditEvents = pgTable(
+  "operator_audit_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    actorId: text("actor_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    action: text("action").notNull(),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, string | number | boolean | null>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("operator_audit_action_length", sql`char_length(${table.action}) between 1 and 100`),
+    check("operator_audit_entity_type_length", sql`char_length(${table.entityType}) between 1 and 100`),
+    check("operator_audit_entity_id_length", sql`char_length(${table.entityId}) between 1 and 256`),
+    index("operator_audit_events_created_idx").on(table.createdAt),
+    index("operator_audit_events_actor_idx").on(table.actorId),
+    index("operator_audit_events_entity_idx").on(table.entityType, table.entityId),
+  ],
+);
+
 export const rewardLedger = pgTable(
   "reward_ledger",
   {
@@ -432,6 +499,8 @@ export const insertAttemptAnswerSchema = createInsertSchema(attemptAnswers);
 export const insertReviewEventSchema = createInsertSchema(reviewEvents);
 export const insertGenerationRunSchema = createInsertSchema(generationRuns);
 export const insertRewardLedgerSchema = createInsertSchema(rewardLedger);
+export const insertMemberFeedbackSchema = createInsertSchema(memberFeedback);
+export const insertOperatorAuditEventSchema = createInsertSchema(operatorAuditEvents);
 
 export const questionRelations = relations(questions, ({ one, many }) => ({
   category: one(taxonomies, {
@@ -473,6 +542,8 @@ export type QuizAttempt = typeof quizAttempts.$inferSelect;
 export type AttemptAnswer = typeof attemptAnswers.$inferSelect;
 
 export type User = typeof users.$inferSelect;
+export type MemberFeedback = typeof memberFeedback.$inferSelect;
+export type OperatorAuditEvent = typeof operatorAuditEvents.$inferSelect;
 
 export type UserRole = typeof userRoles.$inferSelect;
 

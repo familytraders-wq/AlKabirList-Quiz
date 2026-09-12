@@ -3,9 +3,9 @@ import { after, before, describe, it } from "node:test";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
-import { userRoles, users } from "@workspace/db/schema";
+import { operatorAuditEvents, userRoles, users } from "@workspace/db/schema";
 import { createApp } from "../app";
 import { resolveUser } from "../lib/auth";
 import { bootstrapAdmin } from "../scripts/bootstrap-admin";
@@ -87,6 +87,10 @@ before(async () => {
 
 after(async () => {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  await db.delete(operatorAuditEvents).where(and(
+    eq(operatorAuditEvents.actorId, admin.userId),
+    inArray(operatorAuditEvents.entityId, allUserIds),
+  ));
   await db.delete(userRoles).where(inArray(userRoles.userId, allUserIds));
   await db.delete(users).where(inArray(users.id, allUserIds));
   await pool.end();

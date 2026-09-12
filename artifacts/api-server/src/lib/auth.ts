@@ -160,7 +160,7 @@ export const adminOnly = requireRole("admin");
 
 export function authErrorHandler(
   error: unknown,
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction,
 ): void {
@@ -169,5 +169,12 @@ export function authErrorHandler(
     return;
   }
 
+  const detail = error instanceof Error
+    ? { name: error.name, message: error.message, stack: error.stack }
+    : { name: typeof error, message: String(error), stack: undefined };
+  (req as Request & { log?: { error: (object: unknown, message: string) => void } }).log?.error(
+    { error: detail },
+    "Unhandled request error",
+  );
   res.status(500).json({ error: "Internal server error" });
 }

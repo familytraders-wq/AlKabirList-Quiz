@@ -14,6 +14,127 @@ export interface HealthStatus {
   status: string;
 }
 
+export type FeedbackKind = typeof FeedbackKind[keyof typeof FeedbackKind];
+
+
+export const FeedbackKind = {
+  question_accuracy: 'question_accuracy',
+  technical: 'technical',
+  accessibility: 'accessibility',
+  general: 'general',
+} as const;
+
+export type FeedbackStatus = typeof FeedbackStatus[keyof typeof FeedbackStatus];
+
+
+export const FeedbackStatus = {
+  open: 'open',
+  in_review: 'in_review',
+  resolved: 'resolved',
+  dismissed: 'dismissed',
+} as const;
+
+export interface FeedbackInput {
+  kind: FeedbackKind;
+  /**
+     * @minLength 1
+     * @maxLength 5000
+     */
+  message: string;
+  questionId?: string;
+  questionVersionId?: string;
+}
+
+export interface FeedbackModerationInput {
+  status: FeedbackStatus;
+  expectedStatus: FeedbackStatus;
+  /** @maxLength 2000 */
+  resolutionNote?: string | null;
+}
+
+export interface Feedback {
+  id: string;
+  kind: FeedbackKind;
+  message: string;
+  status: FeedbackStatus;
+  questionId: string | null;
+  questionVersionId: string | null;
+  resolutionNote: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FeedbackList {
+  items: Feedback[];
+  /** @minimum 0 */
+  total: number;
+}
+
+/**
+ * Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.
+ * @pattern ^\d{4}-\d{2}-\d{2}$
+ */
+export type CanonicalDailyDate = string;
+
+export interface BetaSummarySeries {
+  date: CanonicalDailyDate;
+  /** @minimum 0 */
+  signups: number;
+  /** @minimum 0 */
+  completions: number;
+  /** @minimum 0 */
+  uniqueCompleters: number;
+}
+
+export interface BetaSummary {
+  /** @minimum 0 */
+  totalMembers: number;
+  /** @minimum 0 */
+  completedProfiles: number;
+  /** @minimum 0 */
+  activeMembers7d: number;
+  /** @minimum 0 */
+  uniqueCompleters7d: number;
+  /** @minimum 0 */
+  quizCompletions7d: number;
+  /** @minimum 0 */
+  openFeedback: number;
+  /** @minimum 0 */
+  pendingReviewQuestions: number;
+  /** @minimum 0 */
+  approvedQuestions: number;
+  /** @minimum 0 */
+  scheduledActiveDaysAhead: number;
+  /**
+     * @minItems 7
+     * @maxItems 7
+     */
+  series: BetaSummarySeries[];
+}
+
+export type AuditEventMetadata = {[key: string]: string | number | boolean | null};
+
+export interface AuditEvent {
+  id: string;
+  /** @maxLength 256 */
+  actorId: string;
+  /** @maxLength 100 */
+  action: string;
+  /** @maxLength 100 */
+  entityType: string;
+  /** @maxLength 256 */
+  entityId: string;
+  metadata: AuditEventMetadata;
+  createdAt: string;
+}
+
+export interface AuditList {
+  items: AuditEvent[];
+  /** @minimum 0 */
+  total: number;
+}
+
 export type QuestionStatus = typeof QuestionStatus[keyof typeof QuestionStatus];
 
 
@@ -63,6 +184,14 @@ export interface QuizConfig {
   difficulties: Taxonomy[];
 }
 
+export interface DailyQuiz {
+  quizId: string;
+  title: string;
+  scheduledDate: CanonicalDailyDate;
+  /** @minimum 0 */
+  questionCount: number;
+}
+
 export interface StartAttemptRequest {
   quizId: string;
   audienceId?: string;
@@ -70,7 +199,7 @@ export interface StartAttemptRequest {
      * @minLength 8
      * @maxLength 128
      */
-  idempotencyKey?: string;
+  idempotencyKey: string;
 }
 
 export type AttemptStateStatus = typeof AttemptStateStatus[keyof typeof AttemptStateStatus];
@@ -80,12 +209,6 @@ export const AttemptStateStatus = {
   in_progress: 'in_progress',
   completed: 'completed',
 } as const;
-
-/**
- * Date-only UTC calendar date used for challenge selection, completion, streaks, and rewards.
- * @pattern ^\d{4}-\d{2}-\d{2}$
- */
-export type CanonicalDailyDate = string;
 
 export interface AttemptState {
   attemptId: string;
@@ -465,6 +588,40 @@ export type NotFoundResponse = Error;
 export type ConflictResponse = Error;
 
 export type IdempotencyKeyParameter = string;
+
+export type ListBetaFeedbackParams = {
+status?: FeedbackStatus;
+kind?: FeedbackKind;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+};
+
+export type ListBetaAuditParams = {
+/**
+ * @maxLength 100
+ */
+action?: string;
+/**
+ * @maxLength 100
+ */
+entityType?: string;
+/**
+ * @minimum 1
+ * @maximum 100
+ */
+limit?: number;
+/**
+ * @minimum 0
+ */
+offset?: number;
+};
 
 export type ListAdminQuestionsParams = {
 status?: QuestionStatus;

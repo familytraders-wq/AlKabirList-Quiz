@@ -3,7 +3,7 @@ import { after, before, describe, it } from "node:test";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, pool } from "@workspace/db";
 import {
   attemptAnswers,
@@ -21,6 +21,7 @@ import {
   reviewEvents,
   users,
   userRoles,
+  operatorAuditEvents,
 } from "@workspace/db/schema";
 import { createApp } from "../app";
 
@@ -127,17 +128,28 @@ async function request(
   identity?: Identity,
   jar?: CookieJar,
 ): Promise<ResponseData> {
+  const method = (options.method ?? "GET").toUpperCase();
+  const requestJar = jar ?? (["POST", "PUT", "PATCH", "DELETE"].includes(method) ? new CookieJar() : undefined);
+  if (requestJar && !requestJar.get("alkabir_csrf") && path.startsWith("/quiz/")) {
+    await request("/auth/me", {}, identity, requestJar);
+  }
   const headers = new Headers(options.headers);
   if (options.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
   if (identity) headers.set("x-test-user-id", identity.userId);
-  if (jar) headers.set("cookie", jar.header());
+  if (requestJar) {
+    headers.set("cookie", requestJar.header());
+    if (path.startsWith("/quiz/") && ["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+      headers.set("origin", "http://localhost:5173");
+      headers.set("x-csrf-token", requestJar.get("alkabir_csrf") ?? "");
+    }
+  }
   const response = await fetch(url(path), { ...options, headers });
   const responseWithCookies = response.headers as Headers & { getSetCookie?: () => string[] };
   const setCookies = responseWithCookies.getSetCookie?.() ??
     (response.headers.get("set-cookie") ? [response.headers.get("set-cookie")!] : []);
-  for (const value of setCookies) jar?.setCookieHeader(value);
+  for (const value of setCookies) requestJar?.setCookieHeader(value);
   const text = await response.text();
   return { status: response.status, body: text ? JSON.parse(text) : undefined, headers: response.headers };
 }
@@ -301,6 +313,21 @@ after(async () => {
   }
   await db.delete(reviewEvents).where(eq(reviewEvents.questionId, fixture.reviewQuestionId));
   if (scheduledQuestionIds.length) await db.delete(reviewEvents).where(inArray(reviewEvents.questionId, scheduledQuestionIds));
+  await db.delete(operatorAuditEvents).where(and(
+    eq(operatorAuditEvents.actorId, reviewer.userId),
+    inArray(operatorAuditEvents.entityId, [
+      fixture.approvedQuestionId,
+      fixture.draftQuestionId,
+      fixture.pendingQuestionId,
+      fixture.reviewQuestionId,
+      ...scheduledQuestionIds,
+      fixture.approvedQuizId,
+      fixture.draftQuizId,
+      fixture.pendingQuizId,
+      fixture.dailyQuizId,
+      ...scheduledQuizIds,
+    ]),
+  ));
   await db.delete(guestProgressLinks).where(
     inArray(guestProgressLinks.userId, [member.userId, otherMember.userId]),
   );
@@ -349,6 +376,82 @@ after(async () => {
 });
 
 describe("quiz submission safety", () => {
+  it("returns the complete browser AnswerResult for a minimally persisted current question", async () => {
+    const started = await request(
+      "/quiz/attempts",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `browser-answer-${randomUUID()}`,
+        }),
+      },
+      member,
+    );
+    assert.equal(started.status, 201);
+    const answered = await request(
+      `/quiz/attempts/${started.body.attemptId}/answers`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          versionId: fixture.approvedVersionId,
+          choiceId: fixture.correctChoiceId,
+          idempotencyKey: `browser-answer-key-${randomUUID()}`,
+        }),
+      },
+      member,
+    );
+    assert.equal(answered.status, 200, JSON.stringify(answered.body));
+    assert.deepEqual(answered.body, {
+      versionId: fixture.approvedVersionId,
+      choiceId: fixture.correctChoiceId,
+      isCorrect: true,
+      awardedPoints: 25,
+      explanation: "Fixture explanation",
+      sources: [],
+    });
+  });
+
+  it("redacts malformed legacy source metadata in completion and result responses", async () => {
+    const started = await request(
+      "/quiz/attempts",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quizId: fixture.approvedQuizId,
+          idempotencyKey: `legacy-sources-${randomUUID()}`,
+        }),
+      },
+      member,
+    );
+    assert.equal(started.status, 201);
+    const attemptId = started.body.attemptId as string;
+    const answered = await request(`/quiz/attempts/${attemptId}/answers`, {
+      method: "POST",
+      body: JSON.stringify({
+        versionId: fixture.approvedVersionId,
+        choiceId: fixture.correctChoiceId,
+        idempotencyKey: `legacy-sources-answer-${randomUUID()}`,
+      }),
+    }, member);
+    assert.equal(answered.status, 200);
+    await db.update(questionVersions)
+      .set({ sourceMetadata: sql`jsonb_build_object('unexpected', 'legacy')` })
+      .where(eq(questionVersions.id, fixture.approvedVersionId));
+
+    const completed = await request(`/quiz/attempts/${attemptId}/complete`, {
+      method: "POST",
+    }, member);
+    assert.equal(completed.status, 200, JSON.stringify(completed.body));
+    assert.deepEqual(completed.body.answers[0].sources, []);
+    const result = await request(`/quiz/results/${attemptId}`, {}, member);
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body.answers[0].sources, []);
+    await db.update(questionVersions)
+      .set({ sourceMetadata: [] })
+      .where(eq(questionVersions.id, fixture.approvedVersionId));
+  });
+
   it("does not finalize an attempt until every question is answered", async () => {
     const started = await request(
       "/quiz/attempts",
@@ -868,7 +971,7 @@ describe("quiz scheduling operations", () => {
   });
 
   it("rejects unsafe admin mutations without origin/CSRF and accepts a valid token", async () => {
-    const body = scheduleBody("2099-05-01");
+    const body = scheduleBody("2099-06-28");
     const missingOrigin = await request("/admin/quiz/quizzes", {
       method: "POST",
       body: JSON.stringify(body),

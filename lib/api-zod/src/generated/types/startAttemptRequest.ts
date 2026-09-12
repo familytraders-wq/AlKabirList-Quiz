@@ -13,5 +13,5 @@ export interface StartAttemptRequest {
      * @minLength 8
      * @maxLength 128
      */
-  idempotencyKey?: string;
+  idempotencyKey: string;
 }

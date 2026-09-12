@@ -67,6 +67,7 @@ export function Navbar() {
           </Link>
           {(isReviewer || isAdmin) && <Link href="/admin/content" className="text-muted-foreground hover:text-primary transition-colors">Content</Link>}
           {(isReviewer || isAdmin) && <Link href="/admin/schedule" className="text-muted-foreground hover:text-primary transition-colors">Schedule</Link>}
+          {(isReviewer || isAdmin) && <Link href="/admin/beta" className="text-muted-foreground hover:text-primary transition-colors">Beta</Link>}
           {isAdmin && <Link href="/admin/users" className="text-muted-foreground hover:text-primary transition-colors">Access</Link>}
           <a 
             href="#about" 
@@ -77,9 +78,14 @@ export function Navbar() {
             About
           </a>
           {isLoaded && isSignedIn && (
-            <Link href="/profile" className="text-muted-foreground hover:text-primary transition-colors">
-              Profile
-            </Link>
+            <>
+              <Link href="/feedback" className="text-muted-foreground hover:text-primary transition-colors">
+                Feedback
+              </Link>
+              <Link href="/profile" className="text-muted-foreground hover:text-primary transition-colors">
+                Profile
+              </Link>
+            </>
           )}
         </div>
 

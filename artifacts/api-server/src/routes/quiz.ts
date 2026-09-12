@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { Router, type IRouter, type Response } from "express";
 import { and, asc, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@workspace/db";
@@ -9,6 +8,7 @@ import {
   GetQuizAttemptParams,
   GetQuizAttemptResponse,
   GetQuizConfigResponse,
+  GetDailyQuizResponse,
   GetQuizResultParams,
   GetQuizResultResponse,
   GetQuizHistoryResponse,
@@ -31,6 +31,7 @@ import {
 } from "@workspace/db/schema";
 import { getOwner, requireUser } from "../middlewares/auth";
 import { addUtcDays, canonicalDateAt, canonicalDateFrom } from "../lib/daily-policy";
+import { csrfProtection } from "../lib/security";
 
 const router: IRouter = Router();
 
@@ -45,6 +46,24 @@ class QuizInputError extends Error {
 
 function badRequest(res: Response, message: string) {
   res.status(400).json({ code: "BAD_REQUEST", message });
+}
+
+function safeSources(value: unknown): Array<{ title: string; url?: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((source) => {
+    if (!source || typeof source !== "object") return [];
+    const title = (source as { title?: unknown }).title;
+    const rawUrl = (source as { url?: unknown }).url;
+    if (typeof title !== "string" || !title.trim()) return [];
+    if (rawUrl === undefined) return [{ title }];
+    if (typeof rawUrl !== "string") return [];
+    try {
+      new URL(rawUrl);
+      return [{ title, url: rawUrl }];
+    } catch {
+      return [];
+    }
+  });
 }
 
 function ownerWhere(attemptId: string, res: Response) {
@@ -163,13 +182,44 @@ router.get("/quiz/config", async (_req, res, next) => {
   }
 });
 
-router.post("/quiz/attempts", async (req, res, next) => {
+router.get("/quiz/daily", async (_req, res, next) => {
+  try {
+    const [quiz] = await db
+      .select({
+        id: quizzes.id,
+        title: quizzes.title,
+        scheduledDate: quizzes.scheduledDate,
+        questionCount: count(quizQuestions.versionId),
+      })
+      .from(quizzes)
+      .leftJoin(quizQuestions, eq(quizQuestions.quizId, quizzes.id))
+      .where(and(
+        eq(quizzes.isActive, true),
+        sql`${quizzes.scheduledDate} = (now() at time zone 'UTC')::date`,
+      ))
+      .groupBy(quizzes.id, quizzes.title, quizzes.scheduledDate)
+      .limit(1);
+    if (!quiz || !quiz.scheduledDate) {
+      res.status(404).json({ code: "NO_DAILY_QUIZ", message: "No active quiz is scheduled for today" });
+      return;
+    }
+    res.json(GetDailyQuizResponse.parse({
+      quizId: quiz.id,
+      title: quiz.title,
+      scheduledDate: canonicalDateFrom(quiz.scheduledDate),
+      questionCount: Number(quiz.questionCount),
+    }));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/quiz/attempts", csrfProtection, async (req, res, next) => {
   try {
     const parsed = StartQuizAttemptBody.safeParse(req.body);
     if (!parsed.success) return badRequest(res, "Invalid quiz start request");
     const { quizId, idempotencyKey: bodyKey } = parsed.data;
-    const idempotencyKey =
-      req.header("Idempotency-Key") ?? bodyKey ?? randomUUID();
+    const idempotencyKey = req.header("Idempotency-Key") ?? bodyKey;
     const owner = getOwner(res);
     const [quiz] = await db
       .select()
@@ -185,12 +235,6 @@ router.post("/quiz/attempts", async (req, res, next) => {
             eq(quizAttempts.anonymousSessionId, owner.anonymousSessionId!),
             isNull(quizAttempts.userId),
           );
-      const existing = await tx
-        .select()
-        .from(quizAttempts)
-        .where(and(eq(quizAttempts.quizId, quizId), ownerFilter, eq(quizAttempts.idempotencyKey, idempotencyKey)))
-        .limit(1);
-      if (existing[0]) return existing[0];
       const [created] = await tx
         .insert(quizAttempts)
         .values({
@@ -199,8 +243,16 @@ router.post("/quiz/attempts", async (req, res, next) => {
           anonymousSessionId: owner.anonymousSessionId,
           idempotencyKey,
         })
+        .onConflictDoNothing()
         .returning();
-      return created;
+      if (created) return created;
+      const [existing] = await tx
+        .select()
+        .from(quizAttempts)
+        .where(and(eq(quizAttempts.quizId, quizId), ownerFilter, eq(quizAttempts.idempotencyKey, idempotencyKey!)))
+        .limit(1);
+      if (!existing) throw new Error("Concurrent idempotent attempt could not be recovered");
+      return existing;
     });
     const state = await attemptState(result.id, res);
     if (!state || state.questions.length === 0) {
@@ -224,7 +276,7 @@ router.get("/quiz/attempts/:attemptId", async (req, res, next) => {
   }
 });
 
-router.post("/quiz/attempts/:attemptId/answers", async (req, res, next) => {
+router.post("/quiz/attempts/:attemptId/answers", csrfProtection, async (req, res, next) => {
   try {
     const parsedBody = AnswerQuizQuestionBody.safeParse(req.body);
     if (!parsedBody.success) return badRequest(res, "Invalid answer request");
@@ -265,7 +317,7 @@ router.post("/quiz/attempts/:attemptId/answers", async (req, res, next) => {
           isCorrect: existing[0].isCorrect,
           awardedPoints: existing[0].awardedPoints,
           explanation: version?.explanation ?? "",
-          sources: version?.sourceMetadata ?? [],
+          sources: safeSources(version?.sourceMetadata),
         };
       }
       const [membership] = await tx
@@ -334,7 +386,7 @@ router.post("/quiz/attempts/:attemptId/answers", async (req, res, next) => {
           isCorrect: winner.isCorrect,
           awardedPoints: winner.awardedPoints,
           explanation: winnerVersion?.explanation ?? "",
-          sources: winnerVersion?.sourceMetadata ?? [],
+          sources: safeSources(winnerVersion?.sourceMetadata),
         };
       }
       return {
@@ -343,7 +395,7 @@ router.post("/quiz/attempts/:attemptId/answers", async (req, res, next) => {
         isCorrect,
         awardedPoints,
         explanation: membership.version.explanation,
-        sources: membership.version.sourceMetadata,
+        sources: safeSources(membership.version.sourceMetadata),
       };
     });
     if (!scored) {
@@ -399,13 +451,13 @@ async function resultFor(attemptId: string, res: Response) {
       isCorrect: answer.isCorrect,
       awardedPoints: answer.awardedPoints,
       explanation: version.explanation,
-      sources: version.sourceMetadata,
+      sources: safeSources(version.sourceMetadata),
     })),
     rewardPoints: reward?.points,
   });
 }
 
-router.post("/quiz/attempts/:attemptId/complete", async (req, res, next) => {
+router.post("/quiz/attempts/:attemptId/complete", csrfProtection, async (req, res, next) => {
   try {
     const attemptId = String(req.params.attemptId);
     const owner = getOwner(res);

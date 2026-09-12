@@ -12,6 +12,7 @@ import type { MemberProfile } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { analytics } from "@/lib/analytics";
 
 const baseProfileSchema = z.object({
   firstName: z.string().min(1, "First name is required").max(100),
@@ -111,6 +112,7 @@ export function ProfileForm({ initialData, isOnboarding = false }: ProfileFormPr
         });
         
         if (isOnboarding) {
+          analytics.onboardingCompleted();
           setLocation("/member");
         }
       },
