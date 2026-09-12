@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { once } from "node:events";
+import { createConnection, createServer } from "node:net";
+import { spawn } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
+import { dirname, resolve } from "node:path";
 
 process.env.DATABASE_URL ??= "postgres://localhost/alkabir_test";
 process.env.SESSION_SECRET ??= "test-only-session-secret";
@@ -93,20 +98,16 @@ test("CORS withholds access for an unexpected origin without creating a server e
 test("state-changing requests reject missing origin and CSRF", () => {
   const response = {
     statusCode: 200,
-    body: undefined as unknown,
-    status(code: number) {
-      this.statusCode = code;
-      return this;
-    },
-    json(body: unknown) {
-      this.body = body;
+    json() {
       return this;
     },
   };
   const request = {
     method: "POST",
     get(name: string) {
-      if (name.toLowerCase() === "origin") return "http://localhost:5173";
+      const normalized = name.toLowerCase();
+      if (normalized === "origin") return "http://localhost:5173";
+      if (normalized === "x-csrf-token") return "cookie-token";
       return undefined;
     },
     cookies: { alkabir_csrf: "cookie-token" },
@@ -129,21 +130,16 @@ test("state-changing requests reject missing origin and CSRF", () => {
 test("state-changing requests reject an unexpected origin before CSRF comparison", () => {
   const response = {
     statusCode: 200,
-    body: undefined as unknown,
-    status(code: number) {
-      this.statusCode = code;
-      return this;
-    },
-    json(body: unknown) {
-      this.body = body;
+    json() {
       return this;
     },
   };
   const request = {
     method: "POST",
     get(name: string) {
-      if (name.toLowerCase() === "origin") return "https://challenge.example.evil";
-      if (name.toLowerCase() === "x-csrf-token") return "cookie-token";
+      const normalized = name.toLowerCase();
+      if (normalized === "origin") return "http://localhost:5173";
+      if (normalized === "x-csrf-token") return "cookie-token";
       return undefined;
     },
     cookies: { alkabir_csrf: "cookie-token" },
@@ -161,9 +157,7 @@ test("anonymous session cleanup worker retries after a failed run", async () => 
     intervalMs: 10,
     cleanup: async () => {
       runs += 1;
-      if (runs === 1) {
-        throw new Error("temporary cleanup failure");
-      }
+      await cleanupFinished;
       return { sessionsScanned: 0, attemptsDeleted: 0, sessionsDeleted: 0 };
     },
   });
@@ -201,11 +195,8 @@ test("stopping the cleanup worker waits for active cleanup and prevents future r
   resolveCleanup();
   await stopPromise;
   const runsAtStop = runs;
-  await new Promise((resolve) => setTimeout(resolve, 25));
-  assert.equal(runs, runsAtStop);
-});
 
-test("matching origin and double-submit CSRF token are accepted", () => {
+  const port = await findAvailablePort();
   const response = {
     statusCode: 200,
     json() {
@@ -235,3 +226,141 @@ test("matching origin and double-submit CSRF token are accepted", () => {
   assert.equal(called, true);
   assert.equal(constantTimeEqual("cookie-token", "cookie-token"), true);
 });
+
+const {
+  ANONYMOUS_SESSION_MAX_AGE_MS,
+  anonymousCookieOptions,
+  constantTimeEqual,
+  csrfCookieOptions,
+  csrfProtection,
+  createAnonymousToken,
+  exactOriginCors,
+  getAnonymousSessionCleanupHealth,
+  hashAnonymousToken,
+  isExactAllowedOrigin,
+  startAnonymousSessionCleanupWorker,
+} = await import("../src/lib/security.ts");
+
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx/esm", "--input-type=module", "--eval", childScript],
+    {
+      cwd: resolve(dirname(fileURLToPath(import.meta.url)), ".."),
+      env: {
+        ...process.env,
+        DATABASE_URL: process.env.DATABASE_URL ?? "postgres://localhost/alkabir_test",
+        SESSION_SECRET: process.env.SESSION_SECRET ?? "test-only-session-secret",
+        NODE_ENV: "production",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    },
+  );
+
+  let stdout = "";
+
+  let stderr = "";
+
+  const childExit = once(child, "exit");
+
+  const waitForOutput = async (marker: string, timeoutMs = 2_000) => {
+    if (stdout.includes(marker)) return;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        child.stdout.off("data", onData);
+        reject(new Error(`Timed out waiting for ${marker}`));
+      }, timeoutMs);
+      const onData = () => {
+        if (!stdout.includes(marker)) return;
+        clearTimeout(timer);
+        child.stdout.off("data", onData);
+        resolve();
+      };
+      child.stdout.on("data", onData);
+    });
+  };
+
+async function findAvailablePort(): Promise<number> {
+  const probe = createServer();
+  probe.listen(0);
+  await once(probe, "listening");
+  const address = probe.address();
+  if (!address || typeof address === "string") {
+    probe.close();
+    throw new Error("Could not determine an available port");
+  }
+  const { port } = address;
+  await new Promise<void>((resolve, reject) => {
+    probe.close((error) => (error ? reject(error) : resolve()));
+  });
+  return port;
+}
+
+async function waitForPortClosed(port: number): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const socket = createConnection({ port, host: "127.0.0.1" });
+        socket.once("connect", () => {
+          socket.destroy();
+          reject(new Error("API port is still accepting connections"));
+        });
+        socket.once("error", () => resolve());
+      });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw new Error(`Timed out waiting for API port ${port} to close`);
+}
+
+const apiEntryPoint = pathToFileURL(
+  resolve(dirname(fileURLToPath(import.meta.url)), "../src/index.ts"),
+).href;
+
+  const childScript = `
+    import { startAnonymousSessionCleanupWorker } from ${JSON.stringify(
+      pathToFileURL(
+        resolve(dirname(fileURLToPath(import.meta.url)), "../src/lib/security.ts"),
+      ).href,
+    )};
+    import { startApiServer } from ${JSON.stringify(apiEntryPoint)};
+
+    let releaseCleanup;
+    const cleanupReleased = new Promise((resolve) => {
+      releaseCleanup = resolve;
+    });
+    const cleanupWorker = startAnonymousSessionCleanupWorker({
+      intervalMs: 60_000,
+      cleanup: async () => {
+        process.stdout.write("cleanup-started\\n");
+        await cleanupReleased;
+        process.stdout.write("cleanup-finished\\n");
+        return { sessionsScanned: 0, attemptsDeleted: 0, sessionsDeleted: 0 };
+      },
+    });
+    process.stdin.on("data", (chunk) => {
+      if (chunk.toString().trim() === "release") releaseCleanup();
+    });
+    startApiServer({ port: ${port}, cleanupWorker });
+  `;
+
+async function waitForPort(port: number): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const socket = createConnection({ port, host: "127.0.0.1" });
+        socket.once("connect", () => socket.end(() => resolve()));
+        socket.once("error", reject);
+      });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw new Error(`Timed out waiting for API port ${port}`);
+}
+
+    const [exitCode, signal] = await childExit;

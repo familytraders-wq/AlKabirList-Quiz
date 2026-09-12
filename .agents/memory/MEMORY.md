@@ -7,3 +7,4 @@
 - [Production-style quiz fixtures](production-style-quiz-fixtures.md) — critical browser tests should include minimal and legacy-shaped content, not only canonical integration fixtures.
 - [PostgreSQL joined row locks](postgresql-joined-row-locks.md) — lock mutable parent rows separately before reading joined current-version state after concurrent updates.
 - [Shared integration-test merge safety](shared-test-merge-safety.md) — inspect broad task merges for unrelated test substitutions before trusting their generated diff.
+- [Process shutdown testing](process-shutdown-testing.md) — keep server entrypoints importable with injectable workers so signal-drain tests can use a real child process.
