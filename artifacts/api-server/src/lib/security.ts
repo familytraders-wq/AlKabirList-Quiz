@@ -1,15 +1,25 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
-import { and, eq, gt, isNull } from "drizzle-orm";
-import { anonymousSessions } from "@workspace/db/schema";
+import { and, eq, gt, inArray, isNull, lte, or } from "drizzle-orm";
+import {
+  anonymousSessions,
+  attemptAnswers,
+  guestProgressLinks,
+  quizAttempts,
+} from "@workspace/db/schema";
 import { db } from "@workspace/db";
+import { logger } from "./logger";
 
 export const ANONYMOUS_COOKIE = "__Host-alkabir_anon";
 export const CSRF_COOKIE = "alkabir_csrf";
 export const CSRF_HEADER = "x-csrf-token";
 export const ANONYMOUS_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const ANONYMOUS_SESSION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
+export const ANONYMOUS_SESSION_CLEANUP_BATCH_SIZE = 100;
 
 const unsafeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+let lastAnonymousSessionCleanupAt = 0;
+let anonymousSessionCleanupInFlight: Promise<void> | undefined;
 
 type CookieRequest = Request & {
   cookies?: Record<string, string>;
@@ -87,12 +97,116 @@ export async function createAnonymousSession(
   return { ...session, token, tokenHash, expiresAt };
 }
 
+export type AnonymousSessionCleanupResult = {
+  sessionsScanned: number;
+  attemptsDeleted: number;
+  sessionsDeleted: number;
+};
+
+/**
+ * Remove abandoned guest attempts after their session can no longer be used.
+ *
+ * Completed guest attempts keep their anonymous owner so their result remains
+ * recoverable. Linked sessions also remain because guestProgressLinks is the
+ * audit record for the ownership transfer and intentionally restricts session
+ * deletion. Only sessions with no remaining attempt or link can be removed.
+ */
+export async function cleanupAnonymousSessions(
+  now = new Date(),
+): Promise<AnonymousSessionCleanupResult> {
+  return db.transaction(async (tx) => {
+    const candidates = await tx
+      .select({ id: anonymousSessions.id })
+      .from(anonymousSessions)
+      .where(
+        or(
+          lte(anonymousSessions.expiresAt, now),
+          lte(anonymousSessions.revokedAt, now),
+        ),
+      )
+      .limit(ANONYMOUS_SESSION_CLEANUP_BATCH_SIZE);
+
+    let attemptsDeleted = 0;
+    let sessionsDeleted = 0;
+
+    for (const candidate of candidates) {
+      const abandonedAttempts = await tx
+        .select({ id: quizAttempts.id })
+        .from(quizAttempts)
+        .where(
+          and(
+            eq(quizAttempts.anonymousSessionId, candidate.id),
+            isNull(quizAttempts.userId),
+            eq(quizAttempts.status, "in_progress"),
+          ),
+        );
+      const abandonedAttemptIds = abandonedAttempts.map(({ id }) => id);
+
+      if (abandonedAttemptIds.length > 0) {
+        await tx
+          .delete(attemptAnswers)
+          .where(inArray(attemptAnswers.attemptId, abandonedAttemptIds));
+        await tx
+          .delete(quizAttempts)
+          .where(inArray(quizAttempts.id, abandonedAttemptIds));
+        attemptsDeleted += abandonedAttemptIds.length;
+      }
+
+      const [remainingAttempt] = await tx
+        .select({ id: quizAttempts.id })
+        .from(quizAttempts)
+        .where(eq(quizAttempts.anonymousSessionId, candidate.id))
+        .limit(1);
+      const [progressLink] = await tx
+        .select({ id: guestProgressLinks.id })
+        .from(guestProgressLinks)
+        .where(eq(guestProgressLinks.anonymousSessionId, candidate.id))
+        .limit(1);
+
+      if (!remainingAttempt && !progressLink) {
+        const deleted = await tx
+          .delete(anonymousSessions)
+          .where(eq(anonymousSessions.id, candidate.id))
+          .returning({ id: anonymousSessions.id });
+        sessionsDeleted += deleted.length;
+      }
+    }
+
+    return {
+      sessionsScanned: candidates.length,
+      attemptsDeleted,
+      sessionsDeleted,
+    };
+  });
+}
+
+function maybeCleanupAnonymousSessions(): void {
+  const now = Date.now();
+  if (
+    anonymousSessionCleanupInFlight ||
+    now - lastAnonymousSessionCleanupAt < ANONYMOUS_SESSION_CLEANUP_INTERVAL_MS
+  ) {
+    return;
+  }
+
+  lastAnonymousSessionCleanupAt = now;
+  anonymousSessionCleanupInFlight = cleanupAnonymousSessions()
+    .then(() => undefined)
+    .catch((error) => {
+      logger.warn({ err: error }, "Anonymous session cleanup failed");
+    })
+    .finally(() => {
+      anonymousSessionCleanupInFlight = undefined;
+    });
+}
+
 export async function ensureSecurityCookies(
   req: Request,
   res: Response,
   next: NextFunction,
 ): Promise<void> {
   try {
+    maybeCleanupAnonymousSessions();
     const cookieReq = req as CookieRequest;
     let anonymousSessionId: string | undefined;
     if (!cookieReq.cookies?.[ANONYMOUS_COOKIE]) {

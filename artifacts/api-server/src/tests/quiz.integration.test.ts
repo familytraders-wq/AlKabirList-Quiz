@@ -27,6 +27,7 @@ import {
 } from "@workspace/db/schema";
 import { createApp } from "../app";
 import { parseQuestionCsv } from "../lib/question-csv";
+import { cleanupAnonymousSessions } from "../lib/security";
 
 type Identity = {
   userId: string;
@@ -794,6 +795,176 @@ describe("quiz submission safety", () => {
       if (anonymousSessionId) {
         await db.delete(anonymousSessions).where(eq(anonymousSessions.id, anonymousSessionId));
       }
+    }
+  });
+
+  it("cleans expired guest attempts without removing active or completed results", async () => {
+    const now = new Date();
+    const expiredSessionId = randomUUID();
+    const revokedSessionId = randomUUID();
+    const activeSessionId = randomUUID();
+    const completedSessionId = randomUUID();
+    const expiredAttemptId = randomUUID();
+    const revokedAttemptId = randomUUID();
+    const activeAttemptId = randomUUID();
+    const completedAttemptId = randomUUID();
+
+    await db.insert(anonymousSessions).values([
+      {
+        id: expiredSessionId,
+        tokenHash: `cleanup-expired-${randomUUID()}`,
+        expiresAt: new Date(now.getTime() - 60_000),
+      },
+      {
+        id: revokedSessionId,
+        tokenHash: `cleanup-revoked-${randomUUID()}`,
+        expiresAt: new Date(now.getTime() + 60 * 60_000),
+        revokedAt: new Date(now.getTime() - 60_000),
+      },
+      {
+        id: activeSessionId,
+        tokenHash: `cleanup-active-${randomUUID()}`,
+        expiresAt: new Date(now.getTime() + 60 * 60_000),
+      },
+      {
+        id: completedSessionId,
+        tokenHash: `cleanup-completed-${randomUUID()}`,
+        expiresAt: new Date(now.getTime() - 60_000),
+      },
+    ]);
+    await db.insert(quizAttempts).values([
+      {
+        id: expiredAttemptId,
+        quizId: fixture.approvedQuizId,
+        anonymousSessionId: expiredSessionId,
+        idempotencyKey: `cleanup-expired-${randomUUID()}`,
+      },
+      {
+        id: revokedAttemptId,
+        quizId: fixture.approvedQuizId,
+        anonymousSessionId: revokedSessionId,
+        idempotencyKey: `cleanup-revoked-${randomUUID()}`,
+      },
+      {
+        id: activeAttemptId,
+        quizId: fixture.approvedQuizId,
+        anonymousSessionId: activeSessionId,
+        idempotencyKey: `cleanup-active-${randomUUID()}`,
+      },
+      {
+        id: completedAttemptId,
+        quizId: fixture.approvedQuizId,
+        anonymousSessionId: completedSessionId,
+        idempotencyKey: `cleanup-completed-${randomUUID()}`,
+        status: "completed",
+        score: 25,
+        maxScore: 25,
+        completedAt: new Date(now.getTime() - 60_000),
+      },
+    ]);
+    await db.insert(attemptAnswers).values([
+      {
+        attemptId: expiredAttemptId,
+        versionId: fixture.approvedVersionId,
+        choiceId: fixture.correctChoiceId,
+        isCorrect: true,
+        awardedPoints: 25,
+        idempotencyKey: `cleanup-expired-answer-${randomUUID()}`,
+      },
+      {
+        attemptId: completedAttemptId,
+        versionId: fixture.approvedVersionId,
+        choiceId: fixture.correctChoiceId,
+        isCorrect: true,
+        awardedPoints: 25,
+        idempotencyKey: `cleanup-completed-answer-${randomUUID()}`,
+      },
+    ]);
+
+    try {
+      const cleanup = await cleanupAnonymousSessions(now);
+      assert.ok(cleanup.attemptsDeleted >= 2);
+      assert.ok(cleanup.sessionsDeleted >= 2);
+
+      const remainingAttempts = await db
+        .select({
+          id: quizAttempts.id,
+          status: quizAttempts.status,
+          anonymousSessionId: quizAttempts.anonymousSessionId,
+        })
+        .from(quizAttempts)
+        .where(
+          inArray(quizAttempts.id, [
+            expiredAttemptId,
+            revokedAttemptId,
+            activeAttemptId,
+            completedAttemptId,
+          ]),
+        );
+      assert.deepEqual(remainingAttempts, [
+        {
+          id: activeAttemptId,
+          status: "in_progress",
+          anonymousSessionId: activeSessionId,
+        },
+        {
+          id: completedAttemptId,
+          status: "completed",
+          anonymousSessionId: completedSessionId,
+        },
+      ]);
+
+      const remainingAnswers = await db
+        .select({ attemptId: attemptAnswers.attemptId })
+        .from(attemptAnswers)
+        .where(
+          inArray(attemptAnswers.attemptId, [
+            expiredAttemptId,
+            completedAttemptId,
+          ]),
+        );
+      assert.deepEqual(remainingAnswers, [{ attemptId: completedAttemptId }]);
+
+      const remainingSessions = await db
+        .select({ id: anonymousSessions.id })
+        .from(anonymousSessions)
+        .where(
+          inArray(anonymousSessions.id, [
+            expiredSessionId,
+            revokedSessionId,
+            activeSessionId,
+            completedSessionId,
+          ]),
+        );
+      assert.deepEqual(
+        remainingSessions.map(({ id }) => id).sort(),
+        [activeSessionId, completedSessionId].sort(),
+      );
+    } finally {
+      await db.delete(attemptAnswers).where(
+        inArray(attemptAnswers.attemptId, [
+          expiredAttemptId,
+          revokedAttemptId,
+          activeAttemptId,
+          completedAttemptId,
+        ]),
+      );
+      await db.delete(quizAttempts).where(
+        inArray(quizAttempts.id, [
+          expiredAttemptId,
+          revokedAttemptId,
+          activeAttemptId,
+          completedAttemptId,
+        ]),
+      );
+      await db.delete(anonymousSessions).where(
+        inArray(anonymousSessions.id, [
+          expiredSessionId,
+          revokedSessionId,
+          activeSessionId,
+          completedSessionId,
+        ]),
+      );
     }
   });
 
