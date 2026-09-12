@@ -11,18 +11,96 @@ import * as zod from 'zod';
 /**
  * @summary Health check
  */
+export const healthCheckResponseGuestSessionCleanupConsecutiveFailuresMin = 0;
+
+export const healthCheckResponseGuestSessionCleanupSessionsScannedMin = 0;
+
+export const healthCheckResponseGuestSessionCleanupAttemptsDeletedMin = 0;
+
+export const healthCheckResponseGuestSessionCleanupSessionsDeletedMin = 0;
+
+export const healthCheckResponseGuestSessionCleanupExpiredSessionsRemainingMin = 0;
+
+export const healthCheckResponseGuestSessionCleanupAbandonedAttemptsRemainingMin = 0;
+
+
+
 export const HealthCheckResponse = zod.object({
-  "status": zod.string()
+  "status": zod.string(),
+  "guestSessionCleanup": zod.object({
+  "status": zod.enum(['unknown', 'healthy', 'backlog', 'failed']),
+  "lastAttemptAt": zod.string().nullable(),
+  "lastSuccessAt": zod.string().nullable(),
+  "lastFailureAt": zod.string().nullable(),
+  "consecutiveFailures": zod.number().int().min(healthCheckResponseGuestSessionCleanupConsecutiveFailuresMin),
+  "sessionsScanned": zod.number().int().min(healthCheckResponseGuestSessionCleanupSessionsScannedMin),
+  "attemptsDeleted": zod.number().int().min(healthCheckResponseGuestSessionCleanupAttemptsDeletedMin),
+  "sessionsDeleted": zod.number().int().min(healthCheckResponseGuestSessionCleanupSessionsDeletedMin),
+  "expiredSessionsRemaining": zod.number().int().min(healthCheckResponseGuestSessionCleanupExpiredSessionsRemainingMin),
+  "abandonedAttemptsRemaining": zod.number().int().min(healthCheckResponseGuestSessionCleanupAbandonedAttemptsRemainingMin)
 })
+})
+
+
+export const liveHealthResponseGuestSessionCleanupConsecutiveFailuresMin = 0;
+
+export const liveHealthResponseGuestSessionCleanupSessionsScannedMin = 0;
+
+export const liveHealthResponseGuestSessionCleanupAttemptsDeletedMin = 0;
+
+export const liveHealthResponseGuestSessionCleanupSessionsDeletedMin = 0;
+
+export const liveHealthResponseGuestSessionCleanupExpiredSessionsRemainingMin = 0;
+
+export const liveHealthResponseGuestSessionCleanupAbandonedAttemptsRemainingMin = 0;
+
 
 
 export const LiveHealthResponse = zod.object({
-  "status": zod.string()
+  "status": zod.string(),
+  "guestSessionCleanup": zod.object({
+  "status": zod.enum(['unknown', 'healthy', 'backlog', 'failed']),
+  "lastAttemptAt": zod.string().nullable(),
+  "lastSuccessAt": zod.string().nullable(),
+  "lastFailureAt": zod.string().nullable(),
+  "consecutiveFailures": zod.number().int().min(liveHealthResponseGuestSessionCleanupConsecutiveFailuresMin),
+  "sessionsScanned": zod.number().int().min(liveHealthResponseGuestSessionCleanupSessionsScannedMin),
+  "attemptsDeleted": zod.number().int().min(liveHealthResponseGuestSessionCleanupAttemptsDeletedMin),
+  "sessionsDeleted": zod.number().int().min(liveHealthResponseGuestSessionCleanupSessionsDeletedMin),
+  "expiredSessionsRemaining": zod.number().int().min(liveHealthResponseGuestSessionCleanupExpiredSessionsRemainingMin),
+  "abandonedAttemptsRemaining": zod.number().int().min(liveHealthResponseGuestSessionCleanupAbandonedAttemptsRemainingMin)
+})
 })
 
 
+export const readyHealthResponseGuestSessionCleanupConsecutiveFailuresMin = 0;
+
+export const readyHealthResponseGuestSessionCleanupSessionsScannedMin = 0;
+
+export const readyHealthResponseGuestSessionCleanupAttemptsDeletedMin = 0;
+
+export const readyHealthResponseGuestSessionCleanupSessionsDeletedMin = 0;
+
+export const readyHealthResponseGuestSessionCleanupExpiredSessionsRemainingMin = 0;
+
+export const readyHealthResponseGuestSessionCleanupAbandonedAttemptsRemainingMin = 0;
+
+
+
 export const ReadyHealthResponse = zod.object({
-  "status": zod.string()
+  "status": zod.string(),
+  "guestSessionCleanup": zod.object({
+  "status": zod.enum(['unknown', 'healthy', 'backlog', 'failed']),
+  "lastAttemptAt": zod.string().nullable(),
+  "lastSuccessAt": zod.string().nullable(),
+  "lastFailureAt": zod.string().nullable(),
+  "consecutiveFailures": zod.number().int().min(readyHealthResponseGuestSessionCleanupConsecutiveFailuresMin),
+  "sessionsScanned": zod.number().int().min(readyHealthResponseGuestSessionCleanupSessionsScannedMin),
+  "attemptsDeleted": zod.number().int().min(readyHealthResponseGuestSessionCleanupAttemptsDeletedMin),
+  "sessionsDeleted": zod.number().int().min(readyHealthResponseGuestSessionCleanupSessionsDeletedMin),
+  "expiredSessionsRemaining": zod.number().int().min(readyHealthResponseGuestSessionCleanupExpiredSessionsRemainingMin),
+  "abandonedAttemptsRemaining": zod.number().int().min(readyHealthResponseGuestSessionCleanupAbandonedAttemptsRemainingMin)
+})
 })
 
 

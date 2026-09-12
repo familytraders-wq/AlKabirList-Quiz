@@ -47,6 +47,8 @@ export * from './generationRun';
 export * from './generationRunRequest';
 export * from './generationRunStatus';
 export * from './guestProgress';
+export * from './guestSessionCleanupHealth';
+export * from './guestSessionCleanupHealthStatus';
 export * from './healthStatus';
 export * from './idempotencyKeyParameter';
 export * from './linkGuestProgressRequest';

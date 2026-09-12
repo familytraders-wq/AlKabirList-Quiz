@@ -10,8 +10,41 @@ export interface Error {
   message: string;
 }
 
+export type GuestSessionCleanupHealthStatus = typeof GuestSessionCleanupHealthStatus[keyof typeof GuestSessionCleanupHealthStatus];
+
+
+export const GuestSessionCleanupHealthStatus = {
+  unknown: 'unknown',
+  healthy: 'healthy',
+  backlog: 'backlog',
+  failed: 'failed',
+} as const;
+
+export interface GuestSessionCleanupHealth {
+  status: GuestSessionCleanupHealthStatus;
+  /** @nullable */
+  lastAttemptAt: string | null;
+  /** @nullable */
+  lastSuccessAt: string | null;
+  /** @nullable */
+  lastFailureAt: string | null;
+  /** @minimum 0 */
+  consecutiveFailures: number;
+  /** @minimum 0 */
+  sessionsScanned: number;
+  /** @minimum 0 */
+  attemptsDeleted: number;
+  /** @minimum 0 */
+  sessionsDeleted: number;
+  /** @minimum 0 */
+  expiredSessionsRemaining: number;
+  /** @minimum 0 */
+  abandonedAttemptsRemaining: number;
+}
+
 export interface HealthStatus {
   status: string;
+  guestSessionCleanup: GuestSessionCleanupHealth;
 }
 
 export type FeedbackKind = typeof FeedbackKind[keyof typeof FeedbackKind];

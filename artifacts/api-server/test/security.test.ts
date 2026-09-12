@@ -12,6 +12,7 @@ const {
   csrfProtection,
   createAnonymousToken,
   exactOriginCors,
+  getAnonymousSessionCleanupHealth,
   hashAnonymousToken,
   isExactAllowedOrigin,
   startAnonymousSessionCleanupWorker,
@@ -40,6 +41,36 @@ test("anonymous and CSRF cookies enforce the browser security contract", () => {
   assert.equal(csrfOptions.secure, true);
   assert.equal(csrfOptions.sameSite, "lax");
   assert.equal(csrfOptions.path, "/");
+});
+
+test("guest cleanup health starts with aggregate-only telemetry", () => {
+  const health = getAnonymousSessionCleanupHealth();
+
+  assert.equal(health.status, "unknown");
+  assert.equal(health.consecutiveFailures, 0);
+  assert.equal(health.lastAttemptAt, null);
+  assert.equal(health.lastSuccessAt, null);
+  assert.equal(health.lastFailureAt, null);
+  assert.equal(health.sessionsScanned, 0);
+  assert.equal(health.attemptsDeleted, 0);
+  assert.equal(health.sessionsDeleted, 0);
+  assert.equal(health.expiredSessionsRemaining, 0);
+  assert.equal(health.abandonedAttemptsRemaining, 0);
+  assert.deepEqual(
+    Object.keys(health).sort(),
+    [
+      "abandonedAttemptsRemaining",
+      "attemptsDeleted",
+      "consecutiveFailures",
+      "expiredSessionsRemaining",
+      "lastAttemptAt",
+      "lastFailureAt",
+      "lastSuccessAt",
+      "sessionsDeleted",
+      "sessionsScanned",
+      "status",
+    ],
+  );
 });
 
 test("origin validation is exact and never treats a lookalike as same-origin", () => {

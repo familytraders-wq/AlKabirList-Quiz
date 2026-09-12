@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
-import { and, eq, gt, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, count, eq, gt, inArray, isNull, lte, or } from "drizzle-orm";
 import {
   anonymousSessions,
   attemptAnswers,
@@ -101,7 +101,15 @@ export type AnonymousSessionCleanupResult = {
   sessionsScanned: number;
   attemptsDeleted: number;
   sessionsDeleted: number;
+  expiredSessionsRemaining: number;
+  abandonedAttemptsRemaining: number;
 };
+
+export type AnonymousSessionCleanupStatus =
+  | "unknown"
+  | "healthy"
+  | "backlog"
+  | "failed";
 
 type AnonymousSessionCleanup = () => Promise<AnonymousSessionCleanupResult>;
 
@@ -116,70 +124,106 @@ type AnonymousSessionCleanup = () => Promise<AnonymousSessionCleanupResult>;
 export async function cleanupAnonymousSessions(
   now = new Date(),
 ): Promise<AnonymousSessionCleanupResult> {
-  return db.transaction(async (tx) => {
-    const candidates = await tx
-      .select({ id: anonymousSessions.id })
-      .from(anonymousSessions)
-      .where(
-        or(
-          lte(anonymousSessions.expiresAt, now),
-          lte(anonymousSessions.revokedAt, now),
-        ),
-      )
-      .limit(ANONYMOUS_SESSION_CLEANUP_BATCH_SIZE);
+  try {
+    const result = await db.transaction(async (tx) => {
+      const candidates = await tx
+        .select({ id: anonymousSessions.id })
+        .from(anonymousSessions)
+        .where(
+          or(
+            lte(anonymousSessions.expiresAt, now),
+            lte(anonymousSessions.revokedAt, now),
+          ),
+        )
+        .limit(ANONYMOUS_SESSION_CLEANUP_BATCH_SIZE);
 
-    let attemptsDeleted = 0;
-    let sessionsDeleted = 0;
+      let attemptsDeleted = 0;
+      let sessionsDeleted = 0;
 
-    for (const candidate of candidates) {
-      const abandonedAttempts = await tx
-        .select({ id: quizAttempts.id })
+      for (const candidate of candidates) {
+        const abandonedAttempts = await tx
+          .select({ id: quizAttempts.id })
+          .from(quizAttempts)
+          .where(
+            and(
+              eq(quizAttempts.anonymousSessionId, candidate.id),
+              isNull(quizAttempts.userId),
+              eq(quizAttempts.status, "in_progress"),
+            ),
+          );
+        const abandonedAttemptIds = abandonedAttempts.map(({ id }) => id);
+
+        if (abandonedAttemptIds.length > 0) {
+          await tx
+            .delete(attemptAnswers)
+            .where(inArray(attemptAnswers.attemptId, abandonedAttemptIds));
+          await tx
+            .delete(quizAttempts)
+            .where(inArray(quizAttempts.id, abandonedAttemptIds));
+          attemptsDeleted += abandonedAttemptIds.length;
+        }
+
+        const [remainingAttempt] = await tx
+          .select({ id: quizAttempts.id })
+          .from(quizAttempts)
+          .where(eq(quizAttempts.anonymousSessionId, candidate.id))
+          .limit(1);
+        const [progressLink] = await tx
+          .select({ id: guestProgressLinks.id })
+          .from(guestProgressLinks)
+          .where(eq(guestProgressLinks.anonymousSessionId, candidate.id))
+          .limit(1);
+
+        if (!remainingAttempt && !progressLink) {
+          const deleted = await tx
+            .delete(anonymousSessions)
+            .where(eq(anonymousSessions.id, candidate.id))
+            .returning({ id: anonymousSessions.id });
+          sessionsDeleted += deleted.length;
+        }
+      }
+
+      const [{ expiredSessionsRemaining }] = await tx
+        .select({ expiredSessionsRemaining: count(anonymousSessions.id) })
+        .from(anonymousSessions)
+        .where(
+          or(
+            lte(anonymousSessions.expiresAt, now),
+            lte(anonymousSessions.revokedAt, now),
+          ),
+        );
+      const [{ abandonedAttemptsRemaining }] = await tx
+        .select({ abandonedAttemptsRemaining: count(quizAttempts.id) })
         .from(quizAttempts)
+        .innerJoin(
+          anonymousSessions,
+          eq(quizAttempts.anonymousSessionId, anonymousSessions.id),
+        )
         .where(
           and(
-            eq(quizAttempts.anonymousSessionId, candidate.id),
+            or(
+              lte(anonymousSessions.expiresAt, now),
+              lte(anonymousSessions.revokedAt, now),
+            ),
             isNull(quizAttempts.userId),
             eq(quizAttempts.status, "in_progress"),
           ),
         );
-      const abandonedAttemptIds = abandonedAttempts.map(({ id }) => id);
 
-      if (abandonedAttemptIds.length > 0) {
-        await tx
-          .delete(attemptAnswers)
-          .where(inArray(attemptAnswers.attemptId, abandonedAttemptIds));
-        await tx
-          .delete(quizAttempts)
-          .where(inArray(quizAttempts.id, abandonedAttemptIds));
-        attemptsDeleted += abandonedAttemptIds.length;
-      }
-
-      const [remainingAttempt] = await tx
-        .select({ id: quizAttempts.id })
-        .from(quizAttempts)
-        .where(eq(quizAttempts.anonymousSessionId, candidate.id))
-        .limit(1);
-      const [progressLink] = await tx
-        .select({ id: guestProgressLinks.id })
-        .from(guestProgressLinks)
-        .where(eq(guestProgressLinks.anonymousSessionId, candidate.id))
-        .limit(1);
-
-      if (!remainingAttempt && !progressLink) {
-        const deleted = await tx
-          .delete(anonymousSessions)
-          .where(eq(anonymousSessions.id, candidate.id))
-          .returning({ id: anonymousSessions.id });
-        sessionsDeleted += deleted.length;
-      }
-    }
-
-    return {
-      sessionsScanned: candidates.length,
-      attemptsDeleted,
-      sessionsDeleted,
-    };
-  });
+      return {
+        sessionsScanned: candidates.length,
+        attemptsDeleted,
+        sessionsDeleted,
+        expiredSessionsRemaining,
+        abandonedAttemptsRemaining,
+      };
+    });
+    recordAnonymousSessionCleanupSuccess(result);
+    return result;
+  } catch (error) {
+    recordAnonymousSessionCleanupFailure(error);
+    throw error;
+  }
 }
 
 function maybeCleanupAnonymousSessions(
@@ -197,9 +241,7 @@ function maybeCleanupAnonymousSessions(
   lastAnonymousSessionCleanupAt = now;
   anonymousSessionCleanupInFlight = cleanup()
     .then(() => undefined)
-    .catch((error) => {
-      logger.warn({ err: error }, "Anonymous session cleanup failed");
-    })
+    .catch(() => undefined)
     .finally(() => {
       anonymousSessionCleanupInFlight = undefined;
     });
@@ -405,4 +447,87 @@ export const csrfProtection: RequestHandler = (req, res, next) => {
   }
 
   next();
+};
+
+export type AnonymousSessionCleanupHealth = {
+  status: AnonymousSessionCleanupStatus;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  consecutiveFailures: number;
+  sessionsScanned: number;
+  attemptsDeleted: number;
+  sessionsDeleted: number;
+  expiredSessionsRemaining: number;
+  abandonedAttemptsRemaining: number;
+};
+
+export function getAnonymousSessionCleanupHealth(): AnonymousSessionCleanupHealth {
+  return { ...anonymousSessionCleanupHealth };
+}
+
+function recordAnonymousSessionCleanupFailure(error: unknown): void {
+  const timestamp = new Date().toISOString();
+  const consecutiveFailures =
+    anonymousSessionCleanupHealth.consecutiveFailures + 1;
+  anonymousSessionCleanupHealth = {
+    ...anonymousSessionCleanupHealth,
+    status: "failed",
+    lastAttemptAt: timestamp,
+    lastFailureAt: timestamp,
+    consecutiveFailures,
+  };
+  logger.warn(
+    {
+      err: error,
+      cleanup: "anonymous_sessions",
+      cleanupStatus: "failed",
+      consecutiveFailures,
+    },
+    "Anonymous session cleanup failed",
+  );
+}
+
+function recordAnonymousSessionCleanupSuccess(
+  result: AnonymousSessionCleanupResult,
+): void {
+  const timestamp = new Date().toISOString();
+  const status =
+    result.sessionsScanned >= ANONYMOUS_SESSION_CLEANUP_BATCH_SIZE ||
+    result.abandonedAttemptsRemaining > 0
+      ? "backlog"
+      : "healthy";
+  anonymousSessionCleanupHealth = {
+    ...result,
+    status,
+    lastAttemptAt: timestamp,
+    lastSuccessAt: timestamp,
+    lastFailureAt: anonymousSessionCleanupHealth.lastFailureAt,
+    consecutiveFailures: 0,
+  };
+  logger.info(
+    {
+      cleanup: "anonymous_sessions",
+      cleanupStatus: status,
+      sessionsScanned: result.sessionsScanned,
+      attemptsDeleted: result.attemptsDeleted,
+      sessionsDeleted: result.sessionsDeleted,
+      expiredSessionsRemaining: result.expiredSessionsRemaining,
+      abandonedAttemptsRemaining: result.abandonedAttemptsRemaining,
+    },
+    "Anonymous session cleanup completed",
+  );
+}
+
+let anonymousSessionCleanupHealth: AnonymousSessionCleanupHealth = {
+  status: "unknown",
+  lastAttemptAt: null,
+  lastSuccessAt: null,
+  lastFailureAt: null,
+  consecutiveFailures: 0,
+  sessionsScanned: 0,
+  attemptsDeleted: 0,
+  sessionsDeleted: 0,
+  expiredSessionsRemaining: 0,
+  abandonedAttemptsRemaining: 0,
 };

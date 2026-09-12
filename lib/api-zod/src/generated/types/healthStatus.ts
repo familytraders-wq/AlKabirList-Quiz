@@ -5,7 +5,9 @@
  * Reviewed AlKabir Islamic Challenge API
  * OpenAPI spec version: 0.2.0
  */
+import type { GuestSessionCleanupHealth } from './guestSessionCleanupHealth';
 
 export interface HealthStatus {
   status: string;
+  guestSessionCleanup: GuestSessionCleanupHealth;
 }

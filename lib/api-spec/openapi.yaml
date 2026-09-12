@@ -944,10 +944,53 @@ components:
           type: string
     HealthStatus:
       type: object
-      required: [status]
+      required: [status, guestSessionCleanup]
       properties:
         status:
           type: string
+        guestSessionCleanup:
+          $ref: "#/components/schemas/GuestSessionCleanupHealth"
+    GuestSessionCleanupHealth:
+      type: object
+      required:
+        - status
+        - lastAttemptAt
+        - lastSuccessAt
+        - lastFailureAt
+        - consecutiveFailures
+        - sessionsScanned
+        - attemptsDeleted
+        - sessionsDeleted
+        - expiredSessionsRemaining
+        - abandonedAttemptsRemaining
+      properties:
+        status:
+          type: string
+          enum: [unknown, healthy, backlog, failed]
+        lastAttemptAt:
+          type: [string, "null"]
+        lastSuccessAt:
+          type: [string, "null"]
+        lastFailureAt:
+          type: [string, "null"]
+        consecutiveFailures:
+          type: integer
+          minimum: 0
+        sessionsScanned:
+          type: integer
+          minimum: 0
+        attemptsDeleted:
+          type: integer
+          minimum: 0
+        sessionsDeleted:
+          type: integer
+          minimum: 0
+        expiredSessionsRemaining:
+          type: integer
+          minimum: 0
+        abandonedAttemptsRemaining:
+          type: integer
+          minimum: 0
     FeedbackKind:
       type: string
       enum: [question_accuracy, technical, accessibility, general]

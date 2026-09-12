@@ -3,16 +3,27 @@ import { HealthCheckResponse } from "@workspace/api-zod";
 import { ReadyHealthResponse, LiveHealthResponse } from "@workspace/api-zod";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
+import { getAnonymousSessionCleanupHealth } from "../lib/security";
 
 const router: IRouter = Router();
 /** Readiness must never hold a load-balancer probe open indefinitely. */
 export const READINESS_TIMEOUT_MS = 2_000;
 
 router.get("/healthz", (_req, res) => {
-  const data = HealthCheckResponse.parse({ status: "ok" });
+  const data = HealthCheckResponse.parse({
+    status: "ok",
+    guestSessionCleanup: getAnonymousSessionCleanupHealth(),
+  });
   res.json(data);
 });
-router.get("/livez", (_req, res) => res.json(LiveHealthResponse.parse({ status: "ok" })));
+router.get("/livez", (_req, res) =>
+  res.json(
+    LiveHealthResponse.parse({
+      status: "ok",
+      guestSessionCleanup: getAnonymousSessionCleanupHealth(),
+    }),
+  ),
+);
 router.get("/readyz", async (_req, res) => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -22,9 +33,21 @@ router.get("/readyz", async (_req, res) => {
         timer = setTimeout(() => reject(new Error("readiness check timed out")), READINESS_TIMEOUT_MS);
       }),
     ]);
-    res.json(ReadyHealthResponse.parse({ status: "ok" }));
+    res.json(
+      ReadyHealthResponse.parse({
+        status: "ok",
+        guestSessionCleanup: getAnonymousSessionCleanupHealth(),
+      }),
+    );
   } catch {
-    res.status(503).json(ReadyHealthResponse.parse({ status: "unavailable" }));
+    res
+      .status(503)
+      .json(
+        ReadyHealthResponse.parse({
+          status: "unavailable",
+          guestSessionCleanup: getAnonymousSessionCleanupHealth(),
+        }),
+      );
   } finally {
     if (timer) clearTimeout(timer);
   }
