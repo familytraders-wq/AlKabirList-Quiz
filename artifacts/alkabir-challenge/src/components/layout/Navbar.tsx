@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useEffect, useState } from "react";
-import { Search, Menu } from "lucide-react";
+import { ArrowLeft, Search, Menu } from "lucide-react";
 import { useAuth } from "@clerk/react";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 
@@ -36,21 +36,36 @@ export function Navbar() {
     }
   };
 
+  const showBackLink = location !== "/" && location !== "/member";
+
   return (
     <nav className="w-full bg-white/80 backdrop-blur-md border-b border-border/40 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-        {/* Logo */}
-        <Link href="/" className="flex items-center gap-2" data-testid="link-home">
-          <div className="w-8 h-8 flex items-center justify-center text-primary relative">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-full h-full">
-              <path d="M12 2L14.5 8.5L21 11L14.5 13.5L12 20L9.5 13.5L3 11L9.5 8.5L12 2Z" />
-              <path d="M12 5.5L13.5 9.5L17.5 11L13.5 12.5L12 16.5L10.5 12.5L6.5 11L10.5 9.5L12 5.5Z" className="opacity-50" />
-            </svg>
-          </div>
-          <span className="font-serif font-semibold text-xl tracking-tight text-foreground">
-            AlKabirList
-          </span>
-        </Link>
+        <div className="flex min-w-0 items-center gap-3">
+          {showBackLink && (
+            <Link
+              href="/member"
+              className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label="Back to challenge"
+              title="Back to challenge"
+              data-testid="link-back-challenge"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+          )}
+          {/* Logo */}
+          <Link href="/" className="flex min-w-0 items-center gap-2" data-testid="link-home">
+            <div className="relative flex h-8 w-8 shrink-0 items-center justify-center text-primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-full w-full">
+                <path d="M12 2L14.5 8.5L21 11L14.5 13.5L12 20L9.5 13.5L3 11L9.5 8.5L12 2Z" />
+                <path d="M12 5.5L13.5 9.5L17.5 11L13.5 12.5L12 16.5L10.5 12.5L6.5 11L10.5 9.5L12 5.5Z" className="opacity-50" />
+              </svg>
+            </div>
+            <span className="truncate font-serif text-xl font-semibold tracking-tight text-foreground">
+              AlKabirList
+            </span>
+          </Link>
+        </div>
 
         {/* Desktop Links */}
         <div className="hidden md:flex items-center gap-8 text-sm font-medium">

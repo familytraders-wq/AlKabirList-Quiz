@@ -25,6 +25,7 @@ import { Profile } from "@/pages/Profile";
 import { Feedback } from "@/pages/Feedback";
 import { GuestProgressPrompt } from "@/components/auth/GuestProgressPrompt";
 import { useGetAuthMe, getGetAuthMeQueryKey } from "@workspace/api-client-react";
+import { Navbar } from "@/components/layout/Navbar";
 
 const queryClient = new QueryClient();
 const clerkPubKey = publishableKeyFromHost(
@@ -177,6 +178,15 @@ function ClerkQueryClientCacheInvalidator() {
   return null;
 }
 
+function ApplicationPage({ children }: { children: ReactNode }) {
+  return (
+    <div className="min-h-[100dvh] bg-background">
+      <Navbar />
+      {children}
+    </div>
+  );
+}
+
 function Router() {
   return (
     <RoutedErrorBoundary>
@@ -192,11 +202,21 @@ function Router() {
             <Quiz />
           </RequireProfileComplete>
         </Route>
-        <Route path="/admin/users" component={AdminUsers} />
-        <Route path="/admin/content" component={AdminContent} />
-        <Route path="/admin/schedule" component={AdminSchedule} />
-        <Route path="/admin/beta" component={AdminBeta} />
-        <Route path="/onboarding" component={Onboarding} />
+        <Route path="/admin/users">
+          <ApplicationPage><AdminUsers /></ApplicationPage>
+        </Route>
+        <Route path="/admin/content">
+          <ApplicationPage><AdminContent /></ApplicationPage>
+        </Route>
+        <Route path="/admin/schedule">
+          <ApplicationPage><AdminSchedule /></ApplicationPage>
+        </Route>
+        <Route path="/admin/beta">
+          <ApplicationPage><AdminBeta /></ApplicationPage>
+        </Route>
+        <Route path="/onboarding">
+          <ApplicationPage><Onboarding /></ApplicationPage>
+        </Route>
         <Route path="/profile" component={Profile} />
         <Route path="/feedback">
           <RequireProfileComplete>
