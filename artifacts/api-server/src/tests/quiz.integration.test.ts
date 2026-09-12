@@ -1232,6 +1232,60 @@ describe("CSV question imports", () => {
     assert.equal(noCreate.length, 0);
   });
 
+  it("allows only one concurrent import for the same expected version", async () => {
+    const initial = await adminMutation("/admin/quiz/questions/import-csv", {
+      method: "POST",
+      body: JSON.stringify({ filename: "initial.csv", csv: csv(row("Concurrent target")) }),
+    }, reviewer);
+    assert.equal(initial.status, 201, JSON.stringify(initial.body));
+    const questionId = initial.body.questionIds[0];
+    scheduledQuestionIds.push(questionId);
+
+    const [first, second] = await Promise.all([
+      adminMutation("/admin/quiz/questions/import-csv", {
+        method: "POST",
+        body: JSON.stringify({
+          filename: "concurrent-a.csv",
+          csv: csv(row("Concurrent edit A", { 0: questionId, 1: "1" })),
+        }),
+      }, reviewer),
+      adminMutation("/admin/quiz/questions/import-csv", {
+        method: "POST",
+        body: JSON.stringify({
+          filename: "concurrent-b.csv",
+          csv: csv(row("Concurrent edit B", { 0: questionId, 1: "1" })),
+        }),
+      }, reviewer),
+    ]);
+    const results = [first, second];
+    const successes = results.filter((response) => response.status === 201);
+    const conflicts = results.filter((response) => response.status === 400);
+
+    assert.equal(successes.length, 1, JSON.stringify(results.map((response) => response.body)));
+    assert.equal(conflicts.length, 1, JSON.stringify(results.map((response) => response.body)));
+    assert.deepEqual(conflicts[0].body.rowErrors, [{
+      row: 2,
+      column: "expected_version",
+      message: "Version conflict: expected 1, current version is 2",
+    }]);
+
+    const committedVersions = await db
+      .select({ version: questionVersions.version, prompt: questionVersions.prompt })
+      .from(questionVersions)
+      .where(eq(questionVersions.questionId, questionId));
+    assert.equal(committedVersions.length, 2);
+    assert.equal(committedVersions.filter((version) => version.version === 2).length, 1);
+    assert.ok(["Concurrent edit A", "Concurrent edit B"].includes(
+      committedVersions.find((version) => version.version === 2)?.prompt ?? "",
+    ));
+
+    const updateAudits = await db.select().from(operatorAuditEvents).where(and(
+      eq(operatorAuditEvents.action, "question_updated"),
+      eq(operatorAuditEvents.entityId, questionId),
+    ));
+    assert.equal(updateAudits.length, 1);
+  });
+
   it("accepts escape-heavy JSON that is over the global parser limit", async () => {
     const escapedPrompt = `${"\\".repeat(200_000)},"quoted"`;
     const response = await adminMutation("/admin/quiz/questions/import-csv", {

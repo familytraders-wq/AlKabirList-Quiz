@@ -612,12 +612,20 @@ router.post("/admin/quiz/questions/import-csv", requirePermission("content.manag
       const existingById = new Map<string, { currentVersion: number }>();
       if (updates.length) {
         const referencedIds = updates.map((input) => input.questionId!);
+        // Lock the question rows in a statement without the version join. If a
+        // concurrent import commits while this lock waits, PostgreSQL can
+        // otherwise resume the joined FOR UPDATE query with a stale join
+        // snapshot and incorrectly report the question as missing.
+        const lockedQuestions = await tx
+          .select({ id: questions.id })
+          .from(questions)
+          .where(inArray(questions.id, referencedIds))
+          .for("update");
         const existing = await tx
           .select({ id: questions.id, currentVersion: questionVersions.version })
           .from(questions)
           .innerJoin(questionVersions, eq(questions.currentVersionId, questionVersions.id))
-          .where(inArray(questions.id, referencedIds))
-          .for("update");
+          .where(inArray(questions.id, lockedQuestions.map((question) => question.id)));
         for (const item of existing) existingById.set(item.id, { currentVersion: item.currentVersion });
 
         const conflicts: ImportRowError[] = [];

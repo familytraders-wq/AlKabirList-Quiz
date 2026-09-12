@@ -4,3 +4,4 @@
 - [UTC daily boundary contract](utc-daily-boundaries.md) — keep issued challenge dates as UTC date-only strings through persistence and generated clients.
 - [Content operations invariants](content-operations-invariants.md) — protect every mutation with CSRF and lock approval/current-version checks with schedule writes.
 - [Production-style quiz fixtures](production-style-quiz-fixtures.md) — critical browser tests should include minimal and legacy-shaped content, not only canonical integration fixtures.
+- [PostgreSQL joined row locks](postgresql-joined-row-locks.md) — lock mutable parent rows separately before reading joined current-version state after concurrent updates.
