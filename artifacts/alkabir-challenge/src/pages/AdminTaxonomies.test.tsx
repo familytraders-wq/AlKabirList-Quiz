@@ -121,6 +121,8 @@ describe("AdminTaxonomies", () => {
     );
 
     fireEvent.click(screen.getByTestId("button-taxonomy-difficulties"));
+    expect(screen.getByRole("heading", { name: "Difficulties" })).toBeInTheDocument();
+    expect(screen.queryByText("Difficultys")).not.toBeInTheDocument();
     expect(screen.getByText("Easy")).toBeInTheDocument();
   });
 });

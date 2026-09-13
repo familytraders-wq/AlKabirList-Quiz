@@ -81,6 +81,8 @@ export function AdminTaxonomies() {
 function TaxonomyManager({ kind }: { kind: TaxonomyKind }) {
   const { data: listData, isLoading, isError, error } = useListAdminTaxonomies({ kind });
   const taxonomies = listData?.items ?? [];
+  const pluralLabel = kind === "difficulty" ? "Difficulties" : "Categories";
+  const singularLabel = kind === "difficulty" ? "Difficulty" : "Category";
 
   const queryClient = useQueryClient();
   const reorderMutation = useReorderAdminTaxonomies();
@@ -117,14 +119,14 @@ function TaxonomyManager({ kind }: { kind: TaxonomyKind }) {
     );
   };
 
-  if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading {kind}s...</div>;
-  if (isError) return <div className="py-8 text-center text-destructive bg-destructive/10 rounded-xl p-4">Failed to load {kind}s. {(error as any)?.message}</div>;
+  if (isLoading) return <div className="py-8 text-center text-muted-foreground">Loading {pluralLabel.toLowerCase()}...</div>;
+  if (isError) return <div className="py-8 text-center text-destructive bg-destructive/10 rounded-xl p-4">Failed to load {pluralLabel.toLowerCase()}. {(error as any)?.message}</div>;
 
   return (
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
       <div className="flex justify-between items-center">
-        <h2 className="text-lg font-medium capitalize flex items-center gap-2">
-          {kind}s
+        <h2 aria-label={pluralLabel} className="text-lg font-medium capitalize flex items-center gap-2">
+          {pluralLabel}
           <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground font-medium border border-border">
             {taxonomies.length}
           </span>
@@ -132,7 +134,7 @@ function TaxonomyManager({ kind }: { kind: TaxonomyKind }) {
         {!isAdding && (
           <Button size="sm" onClick={() => setIsAdding(true)} className="gap-2 bg-primary hover:bg-primary/90" data-testid={`button-add-${kind}`}>
             <Plus className="w-4 h-4" />
-            Add {kind}
+            Add {singularLabel.toLowerCase()}
           </Button>
         )}
       </div>
@@ -156,7 +158,7 @@ function TaxonomyManager({ kind }: { kind: TaxonomyKind }) {
         <div className="divide-y divide-border flex-1">
           {taxonomies.length === 0 && !isAdding && (
             <div className="p-12 text-center text-muted-foreground text-sm border-2 border-dashed border-border m-4 rounded-xl">
-              No {kind}s found. Add one to get started.
+               No {pluralLabel.toLowerCase()} found. Add one to get started.
             </div>
           )}
 
