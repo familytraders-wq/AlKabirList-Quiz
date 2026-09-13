@@ -17,10 +17,20 @@ export const CSRF_HEADER = "x-csrf-token";
 export const ANONYMOUS_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const ANONYMOUS_SESSION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 export const ANONYMOUS_SESSION_CLEANUP_BATCH_SIZE = 100;
+/**
+ * A single transient cleanup problem should not page an operator. Three
+ * consecutive worker runs is the sustained-failure window for both cleanup
+ * failures and a cleanup backlog.
+ */
+export const ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS = 3;
 
 const unsafeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 let lastAnonymousSessionCleanupAt = 0;
 let anonymousSessionCleanupInFlight: Promise<void> | undefined;
+type AnonymousSessionCleanupAlertStatus = "failed" | "backlog";
+let consecutiveAnonymousSessionCleanupBacklogRuns = 0;
+let lastAnonymousSessionCleanupAlert: AnonymousSessionCleanupAlertStatus | null =
+  null;
 
 type CookieRequest = Request & {
   cookies?: Record<string, string>;
@@ -617,6 +627,7 @@ function recordAnonymousSessionCleanupFailure(error: unknown): void {
   const timestamp = new Date().toISOString();
   const consecutiveFailures =
     anonymousSessionCleanupHealth.consecutiveFailures + 1;
+  consecutiveAnonymousSessionCleanupBacklogRuns = 0;
   anonymousSessionCleanupHealth = {
     ...anonymousSessionCleanupHealth,
     status: "failed",
@@ -634,6 +645,7 @@ function recordAnonymousSessionCleanupFailure(error: unknown): void {
     },
     "Anonymous session cleanup failed",
   );
+  maybeAlertAnonymousSessionCleanup("failed");
 }
 
 function recordAnonymousSessionCleanupSuccess(
@@ -666,6 +678,57 @@ function recordAnonymousSessionCleanupSuccess(
       abandonedAttemptsRemaining: result.abandonedAttemptsRemaining,
     },
     "Anonymous session cleanup completed",
+  );
+  if (status === "backlog") {
+    consecutiveAnonymousSessionCleanupBacklogRuns += 1;
+  } else {
+    consecutiveAnonymousSessionCleanupBacklogRuns = 0;
+    lastAnonymousSessionCleanupAlert = null;
+  }
+  maybeAlertAnonymousSessionCleanup(status === "backlog" ? "backlog" : null);
+}
+
+function maybeAlertAnonymousSessionCleanup(
+  status: AnonymousSessionCleanupAlertStatus | null,
+): void {
+  if (!status) return;
+
+  const sustainedRuns =
+    status === "failed"
+      ? anonymousSessionCleanupHealth.consecutiveFailures
+      : consecutiveAnonymousSessionCleanupBacklogRuns;
+  if (
+    sustainedRuns < ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS ||
+    lastAnonymousSessionCleanupAlert === status
+  ) {
+    return;
+  }
+
+  lastAnonymousSessionCleanupAlert = status;
+  const isFailure = status === "failed";
+  logger.error(
+    {
+      alert: isFailure
+        ? "anonymous_session_cleanup_failed"
+        : "anonymous_session_cleanup_backlog",
+      cleanup: "anonymous_sessions",
+      cleanupStatus: status,
+      consecutiveFailures: anonymousSessionCleanupHealth.consecutiveFailures,
+      consecutiveBacklogRuns: consecutiveAnonymousSessionCleanupBacklogRuns,
+      sessionsScanned: anonymousSessionCleanupHealth.sessionsScanned,
+      attemptsDeleted: anonymousSessionCleanupHealth.attemptsDeleted,
+      sessionsDeleted: anonymousSessionCleanupHealth.sessionsDeleted,
+      expiredSessionsRemaining:
+        anonymousSessionCleanupHealth.expiredSessionsRemaining,
+      abandonedAttemptsRemaining:
+        anonymousSessionCleanupHealth.abandonedAttemptsRemaining,
+      action: isFailure
+        ? "Investigate the cleanup worker and database errors."
+        : "Investigate cleanup throughput and remove the remaining guest-session backlog.",
+    },
+    isFailure
+      ? "Sustained anonymous session cleanup failures require operator action"
+      : "Sustained anonymous session cleanup backlog requires operator action",
   );
 }
 
