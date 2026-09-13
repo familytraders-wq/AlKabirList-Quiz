@@ -18,11 +18,46 @@ export const ANONYMOUS_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const ANONYMOUS_SESSION_CLEANUP_INTERVAL_MS = 60 * 60 * 1000;
 export const ANONYMOUS_SESSION_CLEANUP_BATCH_SIZE = 100;
 /**
- * A single transient cleanup problem should not page an operator. Three
- * consecutive worker runs is the sustained-failure window for both cleanup
- * failures and a cleanup backlog.
+ * A single transient cleanup problem should not page an operator. Operators
+ * can tune the number of consecutive worker runs required for both cleanup
+ * failures and a cleanup backlog with this environment variable.
  */
-export const ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS = 3;
+export const ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS_ENV =
+  "ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS";
+export const DEFAULT_ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS = 3;
+
+export function parseAnonymousSessionCleanupAlertAfterRuns(
+  rawValue: string | undefined,
+): number {
+  if (rawValue === undefined) {
+    return DEFAULT_ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS;
+  }
+
+  if (/^[1-9]\d*$/.test(rawValue)) {
+    const parsed = Number(rawValue);
+    if (Number.isSafeInteger(parsed)) return parsed;
+  }
+
+  logger.warn(
+    {
+      config: ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS_ENV,
+      value: rawValue,
+      fallback: DEFAULT_ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS,
+    },
+    "Invalid anonymous session cleanup alert window; using the safe default",
+  );
+  return DEFAULT_ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS;
+}
+
+/**
+ * The alert window contract is a positive base-10 integer number of worker
+ * runs. Missing configuration uses the safe default of three runs. Invalid
+ * configuration is logged and also uses that safe default.
+ */
+export const ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS =
+  parseAnonymousSessionCleanupAlertAfterRuns(
+    process.env[ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS_ENV],
+  );
 
 const unsafeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 let lastAnonymousSessionCleanupAt = 0;
@@ -722,6 +757,7 @@ function maybeAlertAnonymousSessionCleanup(
         anonymousSessionCleanupHealth.expiredSessionsRemaining,
       abandonedAttemptsRemaining:
         anonymousSessionCleanupHealth.abandonedAttemptsRemaining,
+      alertAfterRuns: ANONYMOUS_SESSION_CLEANUP_ALERT_AFTER_RUNS,
       action: isFailure
         ? "Investigate the cleanup worker and database errors."
         : "Investigate cleanup throughput and remove the remaining guest-session backlog.",
