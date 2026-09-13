@@ -45,6 +45,15 @@ import {
   ClearPermissionOverrideParams,
   ImportAdminQuestionsCsvBody,
   ImportAdminQuestionsCsvResponse,
+  ListAdminTaxonomiesQueryParams,
+  ListAdminTaxonomiesResponse,
+  CreateAdminTaxonomyBody,
+  CreateAdminTaxonomyResponse,
+  ReorderAdminTaxonomiesBody,
+  ReorderAdminTaxonomiesResponse,
+  UpdateAdminTaxonomyParams,
+  UpdateAdminTaxonomyBody,
+  UpdateAdminTaxonomyResponse,
 } from "@workspace/api-zod";
 import {
   questionAudiences,
@@ -84,6 +93,29 @@ class CsvImportConflictError extends Error {
   constructor(readonly rowErrors: ImportRowError[]) {
     super("CSV update conflicts");
   }
+}
+
+async function listAdminTaxonomies(kind?: "category" | "difficulty") {
+  const rows = await db
+    .select({
+      id: taxonomies.id,
+      kind: taxonomies.kind,
+      slug: taxonomies.slug,
+      label: taxonomies.label,
+      sortOrder: taxonomies.sortOrder,
+      isActive: taxonomies.isActive,
+    })
+    .from(taxonomies)
+    .where(kind ? eq(taxonomies.kind, kind) : inArray(taxonomies.kind, ["category", "difficulty"]))
+    .orderBy(asc(taxonomies.kind), asc(taxonomies.sortOrder), asc(taxonomies.label));
+  return rows;
+}
+
+async function lockTaxonomyKind(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  kind: "category" | "difficulty",
+) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`taxonomy-settings:${kind}`}))`);
 }
 
 async function adminQuestion(questionId: string) {
@@ -545,6 +577,206 @@ router.delete("/admin/users/:userId/permission-overrides/:permission", requireSu
     });
     res.json(await accessRecord(target.managementId));
   } catch (error) { next(error); }
+});
+
+router.get("/admin/quiz/taxonomies", requirePermission("content.view"), async (req, res, next) => {
+  try {
+    const parsed = ListAdminTaxonomiesQueryParams.safeParse(req.query);
+    if (!parsed.success) {
+      badRequest(res, "Invalid taxonomy filter");
+      return;
+    }
+    const items = await listAdminTaxonomies(parsed.data.kind);
+    res.json(ListAdminTaxonomiesResponse.parse({ items }));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/admin/quiz/taxonomies", requirePermission("content.manage"), csrfProtection, async (req, res, next) => {
+  try {
+    const parsed = CreateAdminTaxonomyBody.safeParse(req.body);
+    if (!parsed.success) {
+      badRequest(res, "Enter a valid label and lowercase hyphenated slug");
+      return;
+    }
+    const actorId = getOwner(res).userId;
+    if (!actorId) {
+      res.status(401).json({ code: "UNAUTHORIZED", message: "Sign-in required" });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      await lockTaxonomyKind(tx, parsed.data.kind);
+      const [duplicate] = await tx
+        .select({ id: taxonomies.id })
+        .from(taxonomies)
+        .where(and(eq(taxonomies.kind, parsed.data.kind), eq(taxonomies.slug, parsed.data.slug)))
+        .limit(1);
+      if (duplicate) return { conflict: true as const };
+      const [last] = await tx
+        .select({ sortOrder: taxonomies.sortOrder })
+        .from(taxonomies)
+        .where(eq(taxonomies.kind, parsed.data.kind))
+        .orderBy(desc(taxonomies.sortOrder))
+        .limit(1);
+      const [created] = await tx
+        .insert(taxonomies)
+        .values({
+          kind: parsed.data.kind,
+          slug: parsed.data.slug,
+          label: parsed.data.label.trim(),
+          sortOrder: (last?.sortOrder ?? 0) + 10,
+          isActive: true,
+        })
+        .returning();
+      if (!created) throw new Error("Taxonomy insert did not return a row");
+      await writeAuditEvent(tx, {
+        actorId,
+        action: "taxonomy_created",
+        entityType: "taxonomy",
+        entityId: created.id,
+        metadata: { kind: created.kind, slug: created.slug },
+      });
+      return { created };
+    });
+    if ("conflict" in result) {
+      res.status(409).json({ code: "CONFLICT", message: "That slug is already used for this taxonomy type" });
+      return;
+    }
+    res.status(201).json(CreateAdminTaxonomyResponse.parse(result.created));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put("/admin/quiz/taxonomies/order", requirePermission("content.manage"), csrfProtection, async (req, res, next) => {
+  try {
+    const parsed = ReorderAdminTaxonomiesBody.safeParse(req.body);
+    if (!parsed.success) {
+      badRequest(res, "Invalid taxonomy order");
+      return;
+    }
+    const actorId = getOwner(res).userId;
+    if (!actorId) {
+      res.status(401).json({ code: "UNAUTHORIZED", message: "Sign-in required" });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      await lockTaxonomyKind(tx, parsed.data.kind);
+      const current = await tx
+        .select({ id: taxonomies.id, sortOrder: taxonomies.sortOrder })
+        .from(taxonomies)
+        .where(eq(taxonomies.kind, parsed.data.kind))
+        .orderBy(asc(taxonomies.sortOrder), asc(taxonomies.label));
+      const currentIds = new Set(current.map(({ id }) => id));
+      if (
+        current.length !== parsed.data.taxonomyIds.length
+        || parsed.data.taxonomyIds.some((id) => !currentIds.has(id))
+      ) {
+        return { invalid: true as const };
+      }
+      const highest = current.reduce((value, item) => Math.max(value, item.sortOrder), 0);
+      const temporaryStart = highest + current.length + 100;
+      for (const [index, id] of parsed.data.taxonomyIds.entries()) {
+        await tx
+          .update(taxonomies)
+          .set({ sortOrder: temporaryStart + index })
+          .where(eq(taxonomies.id, id));
+      }
+      for (const [index, id] of parsed.data.taxonomyIds.entries()) {
+        await tx
+          .update(taxonomies)
+          .set({ sortOrder: (index + 1) * 10 })
+          .where(eq(taxonomies.id, id));
+      }
+      await writeAuditEvent(tx, {
+        actorId,
+        action: "taxonomy_reordered",
+        entityType: "taxonomy",
+        entityId: parsed.data.kind,
+        metadata: { kind: parsed.data.kind, count: parsed.data.taxonomyIds.length },
+      });
+      return { invalid: false as const };
+    });
+    if (result.invalid) {
+      badRequest(res, "The taxonomy list changed. Refresh and try reordering again.");
+      return;
+    }
+    const items = await listAdminTaxonomies(parsed.data.kind);
+    res.json(ReorderAdminTaxonomiesResponse.parse({ items }));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch("/admin/quiz/taxonomies/:taxonomyId", requirePermission("content.manage"), csrfProtection, async (req, res, next) => {
+  try {
+    const params = UpdateAdminTaxonomyParams.safeParse(req.params);
+    const parsed = UpdateAdminTaxonomyBody.safeParse(req.body);
+    if (!params.success || !parsed.success) {
+      badRequest(res, "Enter a valid label and lowercase hyphenated slug");
+      return;
+    }
+    const actorId = getOwner(res).userId;
+    if (!actorId) {
+      res.status(401).json({ code: "UNAUTHORIZED", message: "Sign-in required" });
+      return;
+    }
+    const result = await db.transaction(async (tx) => {
+      const [current] = await tx
+        .select()
+        .from(taxonomies)
+        .where(eq(taxonomies.id, params.data.taxonomyId))
+        .limit(1);
+      if (!current || !["category", "difficulty"].includes(current.kind)) {
+        return { missing: true as const };
+      }
+      await lockTaxonomyKind(tx, current.kind as "category" | "difficulty");
+      const [duplicate] = await tx
+        .select({ id: taxonomies.id })
+        .from(taxonomies)
+        .where(and(
+          eq(taxonomies.kind, current.kind),
+          eq(taxonomies.slug, parsed.data.slug),
+          sql`${taxonomies.id} <> ${current.id}`,
+        ))
+        .limit(1);
+      if (duplicate) return { conflict: true as const };
+      const [updated] = await tx
+        .update(taxonomies)
+        .set({
+          slug: parsed.data.slug,
+          label: parsed.data.label.trim(),
+          isActive: parsed.data.isActive,
+        })
+        .where(eq(taxonomies.id, current.id))
+        .returning();
+      if (!updated) return { missing: true as const };
+      await writeAuditEvent(tx, {
+        actorId,
+        action: "taxonomy_updated",
+        entityType: "taxonomy",
+        entityId: updated.id,
+        metadata: {
+          kind: updated.kind,
+          slug: updated.slug,
+          isActive: updated.isActive,
+        },
+      });
+      return { updated };
+    });
+    if ("missing" in result) {
+      res.status(404).json({ code: "NOT_FOUND", message: "Taxonomy not found" });
+      return;
+    }
+    if ("conflict" in result) {
+      res.status(409).json({ code: "CONFLICT", message: "That slug is already used for this taxonomy type" });
+      return;
+    }
+    res.json(UpdateAdminTaxonomyResponse.parse(result.updated));
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.get("/admin/quiz/questions", requirePermission("content.view"), async (req, res, next) => {

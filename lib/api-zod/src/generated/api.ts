@@ -684,6 +684,103 @@ export const CreateAdminQuestionResponse = zod.object({
 
 
 /**
+ * @summary List category and difficulty settings, including inactive records
+ */
+export const ListAdminTaxonomiesQueryParams = zod.object({
+  "kind": zod.enum(['category', 'difficulty']).optional()
+})
+
+export const ListAdminTaxonomiesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "kind": zod.enum(['category', 'difficulty']),
+  "slug": zod.string(),
+  "label": zod.string(),
+  "sortOrder": zod.number().int(),
+  "isActive": zod.boolean()
+}))
+})
+
+
+/**
+ * @summary Create a category or difficulty
+ */
+export const createAdminTaxonomyBodySlugMax = 80;
+
+
+export const createAdminTaxonomyBodySlugRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)*$');
+export const createAdminTaxonomyBodyLabelMax = 100;
+
+
+
+export const CreateAdminTaxonomyBody = zod.object({
+  "kind": zod.enum(['category', 'difficulty']),
+  "slug": zod.string().min(1).max(createAdminTaxonomyBodySlugMax).regex(createAdminTaxonomyBodySlugRegExp),
+  "label": zod.string().min(1).max(createAdminTaxonomyBodyLabelMax)
+})
+
+export const CreateAdminTaxonomyResponse = zod.object({
+  "id": zod.string().uuid(),
+  "kind": zod.enum(['category', 'difficulty']),
+  "slug": zod.string(),
+  "label": zod.string(),
+  "sortOrder": zod.number().int(),
+  "isActive": zod.boolean()
+})
+
+
+/**
+ * @summary Persist the display order for one taxonomy kind
+ */
+export const ReorderAdminTaxonomiesBody = zod.object({
+  "kind": zod.enum(['category', 'difficulty']),
+  "taxonomyIds": zod.array(zod.string().uuid())
+})
+
+export const ReorderAdminTaxonomiesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().uuid(),
+  "kind": zod.enum(['category', 'difficulty']),
+  "slug": zod.string(),
+  "label": zod.string(),
+  "sortOrder": zod.number().int(),
+  "isActive": zod.boolean()
+}))
+})
+
+
+/**
+ * @summary Edit or activate/deactivate a category or difficulty
+ */
+export const UpdateAdminTaxonomyParams = zod.object({
+  "taxonomyId": zod.coerce.string().uuid()
+})
+
+export const updateAdminTaxonomyBodySlugMax = 80;
+
+
+export const updateAdminTaxonomyBodySlugRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)*$');
+export const updateAdminTaxonomyBodyLabelMax = 100;
+
+
+
+export const UpdateAdminTaxonomyBody = zod.object({
+  "slug": zod.string().min(1).max(updateAdminTaxonomyBodySlugMax).regex(updateAdminTaxonomyBodySlugRegExp),
+  "label": zod.string().min(1).max(updateAdminTaxonomyBodyLabelMax),
+  "isActive": zod.boolean()
+})
+
+export const UpdateAdminTaxonomyResponse = zod.object({
+  "id": zod.string().uuid(),
+  "kind": zod.enum(['category', 'difficulty']),
+  "slug": zod.string(),
+  "label": zod.string(),
+  "sortOrder": zod.number().int(),
+  "isActive": zod.boolean()
+})
+
+
+/**
  * @summary Export selected or filtered question records as an importer-ready CSV
  */
 export const ExportAdminQuestionsCsvQueryParams = zod.object({

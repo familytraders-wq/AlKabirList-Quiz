@@ -186,6 +186,62 @@ export interface Taxonomy {
   label: string;
 }
 
+export type TaxonomyKind = typeof TaxonomyKind[keyof typeof TaxonomyKind];
+
+
+export const TaxonomyKind = {
+  category: 'category',
+  difficulty: 'difficulty',
+} as const;
+
+export interface AdminTaxonomy {
+  id: string;
+  kind: TaxonomyKind;
+  slug: string;
+  label: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+
+export interface AdminTaxonomyList {
+  items: AdminTaxonomy[];
+}
+
+export interface TaxonomyInput {
+  kind: TaxonomyKind;
+  /**
+     * @minLength 1
+     * @maxLength 80
+     * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+     */
+  slug: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  label: string;
+}
+
+export interface TaxonomyUpdate {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+     */
+  slug: string;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  label: string;
+  isActive: boolean;
+}
+
+export interface TaxonomyOrderInput {
+  kind: TaxonomyKind;
+  taxonomyIds: string[];
+}
+
 export interface PublicChoice {
   id: string;
   label: string;
@@ -770,6 +826,10 @@ limit?: number;
  * @minimum 0
  */
 offset?: number;
+};
+
+export type ListAdminTaxonomiesParams = {
+kind?: TaxonomyKind;
 };
 
 export type ExportAdminQuestionsCsvParams = {

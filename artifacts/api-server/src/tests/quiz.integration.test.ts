@@ -364,6 +364,9 @@ after(async () => {
       fixture.pendingQuizId,
       fixture.dailyQuizId,
       ...scheduledQuizIds,
+      ...csvTaxonomyIds,
+      "category",
+      "difficulty",
     ]),
   ));
   await db.delete(guestProgressLinks).where(
@@ -1390,6 +1393,91 @@ describe("quiz submission safety", () => {
     const transferred = await db.select().from(quizAttempts).where(eq(quizAttempts.id, started.body.attemptId));
     assert.equal(transferred[0]?.anonymousSessionId, null);
     assert.ok(transferred[0]?.userId === member.userId || transferred[0]?.userId === otherMember.userId);
+  });
+});
+
+describe("taxonomy settings", () => {
+  it("creates, edits, reorders, and deactivates question taxonomies", async () => {
+    const suffix = randomUUID().slice(0, 8);
+    const first = await adminMutation("/admin/quiz/taxonomies", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "category",
+        slug: `history-${suffix}`,
+        label: "Islamic History",
+      }),
+    }, reviewer);
+    assert.equal(first.status, 201, JSON.stringify(first.body));
+    csvTaxonomyIds.push(first.body.id);
+
+    const second = await adminMutation("/admin/quiz/taxonomies", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "category",
+        slug: `worship-${suffix}`,
+        label: "Worship",
+      }),
+    }, reviewer);
+    assert.equal(second.status, 201, JSON.stringify(second.body));
+    csvTaxonomyIds.push(second.body.id);
+
+    const duplicate = await adminMutation("/admin/quiz/taxonomies", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "category",
+        slug: `history-${suffix}`,
+        label: "Duplicate",
+      }),
+    }, reviewer);
+    assert.equal(duplicate.status, 409);
+
+    const listed = await adminMutation("/admin/quiz/taxonomies?kind=category", {}, reviewer);
+    assert.equal(listed.status, 200, JSON.stringify(listed.body));
+    assert.ok(listed.body.items.some((item: { id: string }) => item.id === first.body.id));
+    assert.ok(listed.body.items.some((item: { id: string }) => item.id === second.body.id));
+
+    const updated = await adminMutation(`/admin/quiz/taxonomies/${first.body.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        slug: `islamic-history-${suffix}`,
+        label: "Islamic Civilization",
+        isActive: false,
+      }),
+    }, reviewer);
+    assert.equal(updated.status, 200, JSON.stringify(updated.body));
+    assert.equal(updated.body.label, "Islamic Civilization");
+    assert.equal(updated.body.isActive, false);
+
+    const ids = listed.body.items.map((item: { id: string }) => item.id);
+    const reorderedIds = [
+      second.body.id,
+      first.body.id,
+      ...ids.filter((id: string) => id !== first.body.id && id !== second.body.id),
+    ];
+    const reordered = await adminMutation("/admin/quiz/taxonomies/order", {
+      method: "PUT",
+      body: JSON.stringify({ kind: "category", taxonomyIds: reorderedIds }),
+    }, reviewer);
+    assert.equal(reordered.status, 200, JSON.stringify(reordered.body));
+    assert.deepEqual(
+      reordered.body.items.map((item: { id: string }) => item.id),
+      reorderedIds,
+    );
+
+    const publicConfig = await request("/quiz/config");
+    assert.equal(publicConfig.status, 200);
+    assert.ok(!publicConfig.body.categories.some((item: { id: string }) => item.id === first.body.id));
+    assert.ok(publicConfig.body.categories.some((item: { id: string }) => item.id === second.body.id));
+
+    const denied = await adminMutation("/admin/quiz/taxonomies", {
+      method: "POST",
+      body: JSON.stringify({
+        kind: "difficulty",
+        slug: `denied-${suffix}`,
+        label: "Denied",
+      }),
+    }, member);
+    assert.equal(denied.status, 403);
   });
 });
 

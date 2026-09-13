@@ -371,6 +371,103 @@ paths:
                 $ref: "#/components/schemas/AdminQuestion"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /admin/quiz/taxonomies:
+    get:
+      operationId: listAdminTaxonomies
+      tags: [admin]
+      summary: List category and difficulty settings, including inactive records
+      parameters:
+        - in: query
+          name: kind
+          schema:
+            $ref: "#/components/schemas/TaxonomyKind"
+      responses:
+        "200":
+          description: Taxonomy settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTaxonomyList"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: createAdminTaxonomy
+      tags: [admin]
+      summary: Create a category or difficulty
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaxonomyInput"
+      responses:
+        "201":
+          description: Created taxonomy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTaxonomy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /admin/quiz/taxonomies/order:
+    put:
+      operationId: reorderAdminTaxonomies
+      tags: [admin]
+      summary: Persist the display order for one taxonomy kind
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaxonomyOrderInput"
+      responses:
+        "200":
+          description: Reordered taxonomy settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTaxonomyList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /admin/quiz/taxonomies/{taxonomyId}:
+    patch:
+      operationId: updateAdminTaxonomy
+      tags: [admin]
+      summary: Edit or activate/deactivate a category or difficulty
+      parameters:
+        - in: path
+          name: taxonomyId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaxonomyUpdate"
+      responses:
+        "200":
+          description: Updated taxonomy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTaxonomy"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /admin/quiz/questions/export-csv:
     get:
       operationId: exportAdminQuestionsCsv
@@ -1098,6 +1195,76 @@ components:
           type: string
         label:
           type: string
+    TaxonomyKind:
+      type: string
+      enum: [category, difficulty]
+    AdminTaxonomy:
+      type: object
+      required: [id, kind, slug, label, sortOrder, isActive]
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          $ref: "#/components/schemas/TaxonomyKind"
+        slug:
+          type: string
+        label:
+          type: string
+        sortOrder:
+          type: integer
+        isActive:
+          type: boolean
+    AdminTaxonomyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminTaxonomy"
+    TaxonomyInput:
+      type: object
+      required: [kind, slug, label]
+      properties:
+        kind:
+          $ref: "#/components/schemas/TaxonomyKind"
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        label:
+          type: string
+          minLength: 1
+          maxLength: 100
+    TaxonomyUpdate:
+      type: object
+      required: [slug, label, isActive]
+      properties:
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        label:
+          type: string
+          minLength: 1
+          maxLength: 100
+        isActive:
+          type: boolean
+    TaxonomyOrderInput:
+      type: object
+      required: [kind, taxonomyIds]
+      properties:
+        kind:
+          $ref: "#/components/schemas/TaxonomyKind"
+        taxonomyIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
     PublicChoice:
       type: object
       required: [id, label, position]

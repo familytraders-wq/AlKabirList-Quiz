@@ -85,6 +85,7 @@ export function Navbar() {
             Islamic Challenge
           </Link>
           {permissions.includes("content.view") && <Link href="/admin/content" className="text-muted-foreground hover:text-primary transition-colors">Content</Link>}
+          {permissions.includes("content.manage") && <Link href="/admin/taxonomies" className="text-muted-foreground hover:text-primary transition-colors">Taxonomies</Link>}
           {permissions.includes("schedule.view") && <Link href="/admin/schedule" className="text-muted-foreground hover:text-primary transition-colors">Schedule</Link>}
           {permissions.includes("beta.view") && <Link href="/admin/beta" className="text-muted-foreground hover:text-primary transition-colors">Beta</Link>}
           {permissions.includes("access.view") && <Link href="/admin/users" className="text-muted-foreground hover:text-primary transition-colors">Access</Link>}

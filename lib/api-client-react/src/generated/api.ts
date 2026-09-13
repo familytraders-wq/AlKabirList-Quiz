@@ -25,6 +25,8 @@ import type {
   AdminQuiz,
   AdminQuizList,
   AdminQuizPreview,
+  AdminTaxonomy,
+  AdminTaxonomyList,
   AdminUser,
   AdminUserList,
   AnswerResult,
@@ -48,6 +50,7 @@ import type {
   LinkGuestProgressRequest,
   LinkGuestProgressResult,
   ListAdminQuestionsParams,
+  ListAdminTaxonomiesParams,
   ListBetaAuditParams,
   ListBetaFeedbackParams,
   MemberProfile,
@@ -72,6 +75,9 @@ import type {
   RoleChangeRequest,
   StartAttemptRequest,
   SubmitAnswerRequest,
+  TaxonomyInput,
+  TaxonomyOrderInput,
+  TaxonomyUpdate,
   UnauthorizedResponse
 } from './api.schemas';
 
@@ -1667,6 +1673,355 @@ export const useCreateAdminQuestion = <TError = ErrorType<ForbiddenResponse>,
         TContext
       > => {
       return useMutation(getCreateAdminQuestionMutationOptions(options));
+    }
+
+export const getListAdminTaxonomiesUrl = (params?: ListAdminTaxonomiesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/admin/quiz/taxonomies?${stringifiedParams}` : `/api/admin/quiz/taxonomies`
+}
+
+/**
+ * @summary List category and difficulty settings, including inactive records
+ */
+export const listAdminTaxonomies = async (params?: ListAdminTaxonomiesParams, options?: Parameters<typeof customFetch>[1]): Promise<AdminTaxonomyList> => {
+
+  return customFetch<AdminTaxonomyList>(getListAdminTaxonomiesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAdminTaxonomiesQueryKey = (params?: ListAdminTaxonomiesParams,) => {
+    return [
+    `/api/admin/quiz/taxonomies`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListAdminTaxonomiesQueryOptions = <TData = Awaited<ReturnType<typeof listAdminTaxonomies>>, TError = ErrorType<ForbiddenResponse>>(params?: ListAdminTaxonomiesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdminTaxonomies>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAdminTaxonomiesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAdminTaxonomies>>> = ({ signal }) => listAdminTaxonomies(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAdminTaxonomies>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAdminTaxonomiesQueryResult = NonNullable<Awaited<ReturnType<typeof listAdminTaxonomies>>>
+export type ListAdminTaxonomiesQueryError = ErrorType<ForbiddenResponse>
+
+
+/**
+ * @summary List category and difficulty settings, including inactive records
+ */
+
+export function useListAdminTaxonomies<TData = Awaited<ReturnType<typeof listAdminTaxonomies>>, TError = ErrorType<ForbiddenResponse>>(
+ params?: ListAdminTaxonomiesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAdminTaxonomies>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAdminTaxonomiesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateAdminTaxonomyUrl = () => {
+
+
+
+
+  return `/api/admin/quiz/taxonomies`
+}
+
+/**
+ * @summary Create a category or difficulty
+ */
+export const createAdminTaxonomy = async (taxonomyInput: TaxonomyInput, options?: Parameters<typeof customFetch>[1]): Promise<AdminTaxonomy> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdminTaxonomy>(getCreateAdminTaxonomyUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(taxonomyInput)
+  }
+);}
+
+
+
+
+
+export const getCreateAdminTaxonomyMutationKey = () => ['createAdminTaxonomy'] as const;
+
+export const getCreateAdminTaxonomyMutationOptions = <TError = ErrorType<BadRequestResponse | ForbiddenResponse | ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAdminTaxonomy>>, TError,CreateAdminTaxonomyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createAdminTaxonomy>>, TError,CreateAdminTaxonomyMutationVariables, TContext> => {
+
+const mutationKey = getCreateAdminTaxonomyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createAdminTaxonomy>>, CreateAdminTaxonomyMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createAdminTaxonomy(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateAdminTaxonomyMutationResult = NonNullable<Awaited<ReturnType<typeof createAdminTaxonomy>>>
+    export type CreateAdminTaxonomyMutationBody = BodyType<TaxonomyInput>
+    export type CreateAdminTaxonomyMutationError = ErrorType<BadRequestResponse | ForbiddenResponse | ConflictResponse>
+    export type CreateAdminTaxonomyMutationVariables = {data: BodyType<TaxonomyInput>}
+
+    /**
+ * @summary Create a category or difficulty
+ */
+export const useCreateAdminTaxonomy = <TError = ErrorType<BadRequestResponse | ForbiddenResponse | ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createAdminTaxonomy>>, TError,CreateAdminTaxonomyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createAdminTaxonomy>>,
+        TError,
+        CreateAdminTaxonomyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateAdminTaxonomyMutationOptions(options));
+    }
+
+export const getReorderAdminTaxonomiesUrl = () => {
+
+
+
+
+  return `/api/admin/quiz/taxonomies/order`
+}
+
+/**
+ * @summary Persist the display order for one taxonomy kind
+ */
+export const reorderAdminTaxonomies = async (taxonomyOrderInput: TaxonomyOrderInput, options?: Parameters<typeof customFetch>[1]): Promise<AdminTaxonomyList> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdminTaxonomyList>(getReorderAdminTaxonomiesUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(taxonomyOrderInput)
+  }
+);}
+
+
+
+
+
+export const getReorderAdminTaxonomiesMutationKey = () => ['reorderAdminTaxonomies'] as const;
+
+export const getReorderAdminTaxonomiesMutationOptions = <TError = ErrorType<BadRequestResponse | ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderAdminTaxonomies>>, TError,ReorderAdminTaxonomiesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reorderAdminTaxonomies>>, TError,ReorderAdminTaxonomiesMutationVariables, TContext> => {
+
+const mutationKey = getReorderAdminTaxonomiesMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reorderAdminTaxonomies>>, ReorderAdminTaxonomiesMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  reorderAdminTaxonomies(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReorderAdminTaxonomiesMutationResult = NonNullable<Awaited<ReturnType<typeof reorderAdminTaxonomies>>>
+    export type ReorderAdminTaxonomiesMutationBody = BodyType<TaxonomyOrderInput>
+    export type ReorderAdminTaxonomiesMutationError = ErrorType<BadRequestResponse | ForbiddenResponse>
+    export type ReorderAdminTaxonomiesMutationVariables = {data: BodyType<TaxonomyOrderInput>}
+
+    /**
+ * @summary Persist the display order for one taxonomy kind
+ */
+export const useReorderAdminTaxonomies = <TError = ErrorType<BadRequestResponse | ForbiddenResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderAdminTaxonomies>>, TError,ReorderAdminTaxonomiesMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof reorderAdminTaxonomies>>,
+        TError,
+        ReorderAdminTaxonomiesMutationVariables,
+        TContext
+      > => {
+      return useMutation(getReorderAdminTaxonomiesMutationOptions(options));
+    }
+
+export const getUpdateAdminTaxonomyUrl = (taxonomyId: string,) => {
+
+
+
+
+  return `/api/admin/quiz/taxonomies/${taxonomyId}`
+}
+
+/**
+ * @summary Edit or activate/deactivate a category or difficulty
+ */
+export const updateAdminTaxonomy = async (taxonomyId: string,
+    taxonomyUpdate: TaxonomyUpdate, options?: Parameters<typeof customFetch>[1]): Promise<AdminTaxonomy> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return customFetch<AdminTaxonomy>(getUpdateAdminTaxonomyUrl(taxonomyId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(taxonomyUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateAdminTaxonomyMutationKey = () => ['updateAdminTaxonomy'] as const;
+
+export const getUpdateAdminTaxonomyMutationOptions = <TError = ErrorType<BadRequestResponse | ForbiddenResponse | NotFoundResponse | ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdminTaxonomy>>, TError,UpdateAdminTaxonomyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAdminTaxonomy>>, TError,UpdateAdminTaxonomyMutationVariables, TContext> => {
+
+const mutationKey = getUpdateAdminTaxonomyMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAdminTaxonomy>>, UpdateAdminTaxonomyMutationVariables> = (props) => {
+          const {taxonomyId,data} = props ?? {};
+
+          return  updateAdminTaxonomy(taxonomyId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAdminTaxonomyMutationResult = NonNullable<Awaited<ReturnType<typeof updateAdminTaxonomy>>>
+    export type UpdateAdminTaxonomyMutationBody = BodyType<TaxonomyUpdate>
+    export type UpdateAdminTaxonomyMutationError = ErrorType<BadRequestResponse | ForbiddenResponse | NotFoundResponse | ConflictResponse>
+    export type UpdateAdminTaxonomyMutationVariables = {taxonomyId: string;data: BodyType<TaxonomyUpdate>}
+
+    /**
+ * @summary Edit or activate/deactivate a category or difficulty
+ */
+export const useUpdateAdminTaxonomy = <TError = ErrorType<BadRequestResponse | ForbiddenResponse | NotFoundResponse | ConflictResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAdminTaxonomy>>, TError,UpdateAdminTaxonomyMutationVariables, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAdminTaxonomy>>,
+        TError,
+        UpdateAdminTaxonomyMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateAdminTaxonomyMutationOptions(options));
     }
 
 export const getExportAdminQuestionsCsvUrl = (params?: ExportAdminQuestionsCsvParams,) => {

@@ -18,6 +18,7 @@ import { Home } from "@/pages/Home";
 import { Quiz } from "@/pages/Quiz";
 import { AdminUsers } from "@/pages/AdminUsers";
 import { AdminContent } from "@/pages/AdminContent";
+import { AdminTaxonomies } from "@/pages/AdminTaxonomies";
 import { AdminSchedule } from "@/pages/AdminSchedule";
 import { AdminBeta } from "@/pages/AdminBeta";
 import { Onboarding } from "@/pages/Onboarding";
@@ -221,6 +222,9 @@ function Router() {
         </Route>
         <Route path="/admin/content">
           <RequirePermission permission="content.view"><ApplicationPage><AdminContent /></ApplicationPage></RequirePermission>
+        </Route>
+        <Route path="/admin/taxonomies">
+          <RequirePermission permission="content.manage"><ApplicationPage><AdminTaxonomies /></ApplicationPage></RequirePermission>
         </Route>
         <Route path="/admin/schedule">
           <RequirePermission permission="schedule.view"><ApplicationPage><AdminSchedule /></ApplicationPage></RequirePermission>
