@@ -616,3 +616,38 @@ export const anonymousSessions = pgTable(
     index("anonymous_sessions_active_idx").on(table.revokedAt, table.expiresAt),
   ],
 );
+
+/**
+ * Singleton aggregate state for guest-session retention. This deliberately
+ * contains no session identifiers or other guest data so it can be recovered
+ * safely after an API restart.
+ */
+export const anonymousSessionCleanupHealth = pgTable(
+  "anonymous_session_cleanup_health",
+  {
+    id: text("id").primaryKey(),
+    status: text("status").notNull(),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    lastFailureAt: timestamp("last_failure_at", { withTimezone: true }),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    sessionsScanned: integer("sessions_scanned").notNull().default(0),
+    attemptsDeleted: integer("attempts_deleted").notNull().default(0),
+    sessionsDeleted: integer("sessions_deleted").notNull().default(0),
+    expiredSessionsRemaining: integer("expired_sessions_remaining")
+      .notNull()
+      .default(0),
+    abandonedAttemptsRemaining: integer("abandoned_attempts_remaining")
+      .notNull()
+      .default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "anonymous_session_cleanup_health_status_check",
+      sql`${table.status} in ('healthy', 'backlog', 'failed')`,
+    ),
+  ],
+);

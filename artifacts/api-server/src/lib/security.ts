@@ -3,6 +3,7 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { and, count, eq, gt, inArray, isNull, lte, or } from "drizzle-orm";
 import {
   anonymousSessions,
+  anonymousSessionCleanupHealth as anonymousSessionCleanupHealthSnapshot,
   attemptAnswers,
   guestProgressLinks,
   quizAttempts,
@@ -462,11 +463,157 @@ export type AnonymousSessionCleanupHealth = {
   abandonedAttemptsRemaining: number;
 };
 
+export const ANONYMOUS_SESSION_CLEANUP_HEALTH_ID = "anonymous_sessions";
+
+let anonymousSessionCleanupHealthPersistence: Promise<void> = Promise.resolve();
+let anonymousSessionCleanupStateRecordedLocally = false;
+
 export function getAnonymousSessionCleanupHealth(): AnonymousSessionCleanupHealth {
   return { ...anonymousSessionCleanupHealth };
 }
 
+function toIsoString(value: Date | null): string | null {
+  return value?.toISOString() ?? null;
+}
+
+function toDate(value: string | null): Date | null {
+  return value ? new Date(value) : null;
+}
+
+function persistAnonymousSessionCleanupHealth(
+  health: AnonymousSessionCleanupHealth,
+): void {
+  const values = {
+    id: ANONYMOUS_SESSION_CLEANUP_HEALTH_ID,
+    status: health.status,
+    lastAttemptAt: toDate(health.lastAttemptAt),
+    lastSuccessAt: toDate(health.lastSuccessAt),
+    lastFailureAt: toDate(health.lastFailureAt),
+    consecutiveFailures: health.consecutiveFailures,
+    sessionsScanned: health.sessionsScanned,
+    attemptsDeleted: health.attemptsDeleted,
+    sessionsDeleted: health.sessionsDeleted,
+    expiredSessionsRemaining: health.expiredSessionsRemaining,
+    abandonedAttemptsRemaining: health.abandonedAttemptsRemaining,
+    updatedAt: new Date(),
+  };
+
+  // Cleanup state must never delay a cleanup run, a scheduler tick, or a
+  // readiness probe. Queue writes to preserve ordering while allowing the
+  // caller to continue immediately.
+  anonymousSessionCleanupHealthPersistence =
+    anonymousSessionCleanupHealthPersistence
+      .then(async () => {
+        await db
+          .insert(anonymousSessionCleanupHealthSnapshot)
+          .values(values)
+          .onConflictDoUpdate({
+            target: anonymousSessionCleanupHealthSnapshot.id,
+            set: {
+              status: values.status,
+              lastAttemptAt: values.lastAttemptAt,
+              lastSuccessAt: values.lastSuccessAt,
+              lastFailureAt: values.lastFailureAt,
+              consecutiveFailures: values.consecutiveFailures,
+              sessionsScanned: values.sessionsScanned,
+              attemptsDeleted: values.attemptsDeleted,
+              sessionsDeleted: values.sessionsDeleted,
+              expiredSessionsRemaining: values.expiredSessionsRemaining,
+              abandonedAttemptsRemaining: values.abandonedAttemptsRemaining,
+              updatedAt: values.updatedAt,
+            },
+          });
+      })
+      .catch((error) => {
+        logger.warn(
+          {
+            err: error,
+            cleanup: "anonymous_sessions",
+            cleanupHealthPersistence: "failed",
+          },
+          "Anonymous session cleanup health could not be persisted",
+        );
+      });
+}
+
+/**
+ * Recover the last aggregate cleanup state without delaying startup. If a
+ * cleanup completes before this query returns, its in-process state remains
+ * authoritative and the recovered row is ignored.
+ */
+export async function restoreAnonymousSessionCleanupHealth(): Promise<void> {
+  try {
+    const [storedHealth] = await db
+      .select()
+      .from(anonymousSessionCleanupHealthSnapshot)
+      .where(
+        eq(
+          anonymousSessionCleanupHealthSnapshot.id,
+          ANONYMOUS_SESSION_CLEANUP_HEALTH_ID,
+        ),
+      )
+      .limit(1);
+
+    if (anonymousSessionCleanupStateRecordedLocally) return;
+
+    if (!storedHealth) {
+      logger.info(
+        {
+          cleanup: "anonymous_sessions",
+          cleanupStatus: "unknown",
+          cleanupHealthRecovery: "unrecorded",
+        },
+        "No previous anonymous session cleanup state recorded",
+      );
+      return;
+    }
+
+    anonymousSessionCleanupHealth = {
+      status: storedHealth.status as AnonymousSessionCleanupStatus,
+      lastAttemptAt: toIsoString(storedHealth.lastAttemptAt),
+      lastSuccessAt: toIsoString(storedHealth.lastSuccessAt),
+      lastFailureAt: toIsoString(storedHealth.lastFailureAt),
+      consecutiveFailures: storedHealth.consecutiveFailures,
+      sessionsScanned: storedHealth.sessionsScanned,
+      attemptsDeleted: storedHealth.attemptsDeleted,
+      sessionsDeleted: storedHealth.sessionsDeleted,
+      expiredSessionsRemaining: storedHealth.expiredSessionsRemaining,
+      abandonedAttemptsRemaining: storedHealth.abandonedAttemptsRemaining,
+    };
+    logger.info(
+      {
+        cleanup: "anonymous_sessions",
+        cleanupStatus: anonymousSessionCleanupHealth.status,
+        cleanupHealthRecovery: "restored",
+        lastAttemptAt: anonymousSessionCleanupHealth.lastAttemptAt,
+        lastSuccessAt: anonymousSessionCleanupHealth.lastSuccessAt,
+        lastFailureAt: anonymousSessionCleanupHealth.lastFailureAt,
+        consecutiveFailures:
+          anonymousSessionCleanupHealth.consecutiveFailures,
+        expiredSessionsRemaining:
+          anonymousSessionCleanupHealth.expiredSessionsRemaining,
+        abandonedAttemptsRemaining:
+          anonymousSessionCleanupHealth.abandonedAttemptsRemaining,
+      },
+      "Recovered anonymous session cleanup health",
+    );
+  } catch (error) {
+    // Health recovery is best effort. The API still starts with an explicit
+    // unknown state if the database is unavailable or the new table is not
+    // present yet.
+    logger.warn(
+      {
+        err: error,
+        cleanup: "anonymous_sessions",
+        cleanupHealthRecovery: "failed",
+      },
+      "Anonymous session cleanup health could not be recovered",
+    );
+  }
+}
+
 function recordAnonymousSessionCleanupFailure(error: unknown): void {
+  anonymousSessionCleanupStateRecordedLocally = true;
   const timestamp = new Date().toISOString();
   const consecutiveFailures =
     anonymousSessionCleanupHealth.consecutiveFailures + 1;
@@ -477,6 +624,7 @@ function recordAnonymousSessionCleanupFailure(error: unknown): void {
     lastFailureAt: timestamp,
     consecutiveFailures,
   };
+  persistAnonymousSessionCleanupHealth(anonymousSessionCleanupHealth);
   logger.warn(
     {
       err: error,
@@ -491,6 +639,7 @@ function recordAnonymousSessionCleanupFailure(error: unknown): void {
 function recordAnonymousSessionCleanupSuccess(
   result: AnonymousSessionCleanupResult,
 ): void {
+  anonymousSessionCleanupStateRecordedLocally = true;
   const timestamp = new Date().toISOString();
   const status =
     result.sessionsScanned >= ANONYMOUS_SESSION_CLEANUP_BATCH_SIZE ||
@@ -505,6 +654,7 @@ function recordAnonymousSessionCleanupSuccess(
     lastFailureAt: anonymousSessionCleanupHealth.lastFailureAt,
     consecutiveFailures: 0,
   };
+  persistAnonymousSessionCleanupHealth(anonymousSessionCleanupHealth);
   logger.info(
     {
       cleanup: "anonymous_sessions",
