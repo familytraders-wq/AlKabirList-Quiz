@@ -9,7 +9,7 @@ import {
   quizAttempts,
 } from "@workspace/db/schema";
 import { db } from "@workspace/db";
-import { logger } from "./logger";
+import { logger, notifyOperatorAlert } from "./logger";
 
 export const ANONYMOUS_COOKIE = "__Host-alkabir_anon";
 export const CSRF_COOKIE = "alkabir_csrf";
@@ -766,6 +766,25 @@ function maybeAlertAnonymousSessionCleanup(
       ? "Sustained anonymous session cleanup failures require operator action"
       : "Sustained anonymous session cleanup backlog requires operator action",
   );
+  void notifyOperatorAlert({
+    alert: isFailure
+      ? "anonymous_session_cleanup_failed"
+      : "anonymous_session_cleanup_backlog",
+    cleanup: "anonymous_sessions",
+    cleanupStatus: status,
+    consecutiveFailures: anonymousSessionCleanupHealth.consecutiveFailures,
+    consecutiveBacklogRuns: consecutiveAnonymousSessionCleanupBacklogRuns,
+    sessionsScanned: anonymousSessionCleanupHealth.sessionsScanned,
+    attemptsDeleted: anonymousSessionCleanupHealth.attemptsDeleted,
+    sessionsDeleted: anonymousSessionCleanupHealth.sessionsDeleted,
+    expiredSessionsRemaining:
+      anonymousSessionCleanupHealth.expiredSessionsRemaining,
+    abandonedAttemptsRemaining:
+      anonymousSessionCleanupHealth.abandonedAttemptsRemaining,
+    action: isFailure
+      ? "Investigate the cleanup worker and database errors."
+      : "Investigate cleanup throughput and remove the remaining guest-session backlog.",
+  });
 }
 
 let anonymousSessionCleanupHealth: AnonymousSessionCleanupHealth = {
