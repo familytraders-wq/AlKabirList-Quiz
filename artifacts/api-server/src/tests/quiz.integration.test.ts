@@ -27,7 +27,10 @@ import {
 } from "@workspace/db/schema";
 import { createApp } from "../app";
 import { parseQuestionCsv } from "../lib/question-csv";
-import { cleanupAnonymousSessions } from "../lib/security";
+import {
+  cleanupAnonymousSessions,
+  startAnonymousSessionCleanupWorker,
+} from "../lib/security";
 
 type Identity = {
   userId: string;
@@ -1461,6 +1464,89 @@ describe("quiz scheduling operations", () => {
       ])),
     }, reviewer);
     assert.equal(duplicate.status, 400);
+  });
+
+  it("resumes guest-session retention after a temporary database outage", async () => {
+    const now = new Date();
+    const expiredSessionId = randomUUID();
+    const expiredAttemptId = randomUUID();
+    const cleanupIntervalMs = 25;
+
+    await db.insert(anonymousSessions).values({
+      id: expiredSessionId,
+      tokenHash: `cleanup-outage-${randomUUID()}`,
+      expiresAt: new Date(now.getTime() - 60_000),
+    });
+    await db.insert(quizAttempts).values({
+      id: expiredAttemptId,
+      quizId: fixture.approvedQuizId,
+      anonymousSessionId: expiredSessionId,
+      idempotencyKey: `cleanup-outage-${randomUUID()}`,
+    });
+
+    const originalConnect = pool.connect.bind(pool);
+    let databaseUnavailable = true;
+    let connectionAttempts = 0;
+    pool.connect = (() => {
+      connectionAttempts += 1;
+      if (databaseUnavailable) {
+        throw new Error("temporary database outage");
+      }
+      return originalConnect();
+    }) as typeof pool.connect;
+
+    const worker = startAnonymousSessionCleanupWorker({
+      intervalMs: cleanupIntervalMs,
+    });
+
+    try {
+      const outageDeadline = Date.now() + 1_000;
+      while (connectionAttempts < 1 && Date.now() < outageDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      assert.ok(
+        connectionAttempts >= 1,
+        "the first scheduled cleanup should reach the unavailable database",
+      );
+
+      databaseUnavailable = false;
+
+      const recoveryDeadline = Date.now() + 1_000;
+      while (connectionAttempts < 2 && Date.now() < recoveryDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      await worker.stop();
+      pool.connect = originalConnect as typeof pool.connect;
+
+      const remainingSessions = await db
+        .select({ id: anonymousSessions.id })
+        .from(anonymousSessions)
+        .where(eq(anonymousSessions.id, expiredSessionId));
+      const remainingAttempts = await db
+        .select({ id: quizAttempts.id })
+        .from(quizAttempts)
+        .where(eq(quizAttempts.id, expiredAttemptId));
+
+      assert.ok(
+        connectionAttempts >= 2,
+        "a later scheduled cleanup should reconnect after the outage",
+      );
+      assert.deepEqual(remainingSessions, []);
+      assert.deepEqual(remainingAttempts, []);
+    } finally {
+      databaseUnavailable = false;
+      await worker.stop();
+      pool.connect = originalConnect as typeof pool.connect;
+      await db
+        .delete(attemptAnswers)
+        .where(eq(attemptAnswers.attemptId, expiredAttemptId));
+      await db
+        .delete(quizAttempts)
+        .where(eq(quizAttempts.id, expiredAttemptId));
+      await db
+        .delete(anonymousSessions)
+        .where(eq(anonymousSessions.id, expiredSessionId));
+    }
   });
 
   it("keeps one daily slot under concurrent creates and replaces ordered membership transactionally", async () => {
